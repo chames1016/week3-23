@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>易換 Easy Exchange - Standalone 版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; overflow-x: hidden; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .modal-overlay { background: rgba(23, 23, 23, 0.6); backdrop-filter: blur(4px); }
+        .line-through { text-decoration: line-through; }
+    </style>
+</head>
+<body class="bg-neutral-50 text-neutral-900">
+
+    <!-- Header -->
+    <header class="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-neutral-100">
+        <div class="max-w-7xl mx-auto px-4 h-20 flex items-center justify-between gap-4">
+            <div class="flex items-center gap-2">
+                <div class="w-10 h-10 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-200">
+                    <i data-lucide="shopping-bag" class="w-6 h-6"></i>
+                </div>
+                <h1 class="text-2xl font-bold tracking-tight bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">易換</h1>
+            </div>
+
+            <div class="flex-1 max-w-xl relative hidden md:block">
+                <i data-lucide="search" class="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400 w-5 h-5"></i>
+                <input type="text" id="searchInput" placeholder="搜索您感興趣的物品..." 
+                    class="w-full pl-12 pr-4 py-2.5 bg-neutral-100 border-none rounded-2xl focus:ring-2 focus:ring-indigo-500 transition-all outline-none">
+            </div>
+
+            <div class="flex items-center gap-3" id="authSection">
+                <!-- Dynamically filled -->
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 py-8">
+        <!-- Stats -->
+        <div class="mb-6 flex items-center gap-4 bg-white p-4 rounded-2xl border border-neutral-200 w-fit">
+            <div class="flex items-center gap-2">
+                <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                <span class="text-sm font-bold text-neutral-600">Active: <span id="activeCount">0</span></span>
+            </div>
+            <div class="w-px h-4 bg-neutral-200"></div>
+            <div class="flex items-center gap-2">
+                <span class="w-2 h-2 bg-neutral-400 rounded-full"></span>
+                <span class="text-sm font-bold text-neutral-600">Done: <span id="doneCount">0</span></span>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-3 overflow-x-auto pb-6 no-scrollbar" id="categoryBar"></div>
+        <div class="flex items-center gap-3 mb-8" id="filterBar"></div>
+        <div id="itemGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"></div>
+    </main>
+
+    <!-- Publish Modal -->
+    <div id="publishModal" class="fixed inset-0 z-50 modal-overlay hidden flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-lg max-h-[85vh] rounded-3xl shadow-2xl flex flex-col relative overflow-hidden">
+            <div class="p-6 border-b flex items-center justify-between">
+                <h3 class="text-xl font-bold">發佈新物品</h3>
+                <button onclick="closeModals()" class="text-neutral-400 hover:text-neutral-600"><i data-lucide="x"></i></button>
+            </div>
+            <form id="publishForm" class="p-6 space-y-4 overflow-y-auto flex-1">
+                <div>
+                    <label class="block text-sm font-medium mb-1">物品名稱</label>
+                    <input required id="p-title" class="w-full px-4 py-2 bg-neutral-50 border rounded-xl outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-1">預期價值</label>
+                        <input required type="number" id="p-price" class="w-full px-4 py-2 bg-neutral-50 border rounded-xl outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1">分類</label>
+                        <select id="p-category" class="w-full px-4 py-2 bg-neutral-50 border rounded-xl">
+                            <option>數碼產品</option><option>書籍文具</option><option>家居生活</option><option>鞋服配飾</option><option>其他</option>
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-1">描述</label>
+                    <textarea required id="p-desc" rows="3" class="w-full px-4 py-2 bg-neutral-50 border rounded-xl resize-none"></textarea>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-1">上傳圖片（電腦檔案）</label>
+                    <input id="p-file" type="file" accept="image/*" class="w-full px-4 py-2 bg-neutral-50 border rounded-xl text-sm">
+                </div>
+                <div class="text-center text-xs text-neutral-400">或</div>
+                <div>
+                    <label class="block text-sm font-medium mb-1">網絡圖片 URL</label>
+                    <input id="p-image" type="url" placeholder="https://..." class="w-full px-4 py-2 bg-neutral-50 border rounded-xl">
+                </div>
+                <button type="submit" id="p-submit" class="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg">確認發佈</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Detail Modal -->
+    <div id="detailModal" class="fixed inset-0 z-50 modal-overlay hidden flex items-center justify-center p-4"></div>
+
+    <!-- Auth Modal -->
+    <div id="authModal" class="fixed inset-0 z-50 modal-overlay hidden flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-md rounded-3xl shadow-2xl p-8 relative">
+            <button onclick="closeModals()" class="absolute top-6 right-6 text-neutral-400"><i data-lucide="x"></i></button>
+            <h3 class="text-2xl font-bold mb-6">歡迎回來</h3>
+            <form id="authForm" class="space-y-4">
+                <input required id="login-user" placeholder="帳號" class="w-full px-4 py-3 bg-neutral-50 border rounded-xl">
+                <input required type="password" id="login-pass" placeholder="密碼" class="w-full px-4 py-3 bg-neutral-50 border rounded-xl">
+                <button type="submit" class="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold shadow-lg shadow-indigo-100">登錄 / 註冊</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Profile Modal -->
+    <div id="profileModal" class="fixed inset-0 z-[60] modal-overlay hidden flex items-center justify-center p-4">
+        <div class="absolute right-0 top-0 bottom-0 bg-white w-full max-w-md shadow-2xl flex flex-col">
+            <div class="p-6 border-b flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600"><i data-lucide="user"></i></div>
+                    <h3 class="font-bold text-lg" id="profileName">用戶</h3>
+                </div>
+                <button onclick="logout()" class="text-red-500 p-2 hover:bg-red-50 rounded-xl"><i data-lucide="log-out"></i></button>
+            </div>
+            <div class="flex-1 overflow-y-auto p-6 space-y-8" id="profileContent"></div>
+            <div class="p-6 border-t"><button onclick="closeModals()" class="w-full py-3 bg-neutral-100 rounded-xl font-bold">關閉</button></div>
+        </div>
+    </div>
+
+    <script>
+        // --- State ---
+        let currentCategory = '全部', currentFilter = '全部', searchQuery = '', currentUser = null;
+        const CATS = ["全部", "數碼產品", "書籍文具", "家居生活", "鞋服配飾", "其他"];
+        const FILTERS = ["全部", "只看 active", "只看 done"];
+
+        // --- Core 3 Functions (Rule 6) ---
+        function saveData(newRecord) {
+            const records = loadData();
+            records.unshift({
+                id: Date.now() + "_" + Math.random().toString(36).slice(2, 6),
+                createdAt: new Date().toISOString(),
+                status: "active",
+                owner: currentUser ? currentUser.name : "匿名用戶",
+                comments: [],
+                ...newRecord
+            });
+            localStorage.setItem("records", JSON.stringify(records));
+        }
+
+        function loadData() {
+            const data = localStorage.getItem("records");
+            return data ? JSON.parse(data) : [];
+        }
+
+        function renderList() {
+            const allItems = loadData();
+            document.getElementById('activeCount').textContent = allItems.filter(i => i.status === 'active').length;
+            document.getElementById('doneCount').textContent = allItems.filter(i => i.status === 'done').length;
+
+            const filtered = allItems.filter(i => {
+                const mc = currentCategory === '全部' || i.category === currentCategory;
+                const ms = i.title.toLowerCase().includes(searchQuery.toLowerCase()) || i.description.toLowerCase().includes(searchQuery.toLowerCase());
+                const mf = currentFilter === '全部' || (currentFilter === '只看 active' && i.status === 'active') || (currentFilter === '只看 done' && i.status === 'done');
+                return mc && ms && mf;
+            });
+
+            document.getElementById('itemGrid').innerHTML = filtered.map(i => `
+                <div class="bg-white rounded-3xl overflow-hidden shadow-sm hover:shadow-xl transition-all border border-neutral-100 group cursor-pointer" onclick="showDetail('${i.id}')">
+                    <div class="h-48 relative overflow-hidden">
+                        <img src="${i.imageUrl || 'https://images.unsplash.com/photo-1632661674596-df8be070a5c5?w=500'}" class="w-full h-full object-cover group-hover:scale-105 transition-all">
+                        ${i.status === 'done' ? '<div class="absolute inset-0 bg-black/40 flex items-center justify-center text-white font-bold backdrop-blur-sm">已完成</div>' : ''}
+                        <div class="absolute top-3 left-3 bg-white/90 px-3 py-1 rounded-full text-[10px] font-bold text-indigo-600 shadow-sm">${i.category}</div>
+                    </div>
+                    <div class="p-5">
+                        <div class="flex justify-between mb-2 items-start">
+                            <h3 class="font-bold text-neutral-800 line-clamp-1 flex-1 ${i.status==='done'?'line-through text-neutral-400':''}">${i.title}</h3>
+                            <span class="text-indigo-600 font-bold ml-2">MOP ${i.price}</span>
+                        </div>
+                        <p class="text-neutral-500 text-xs line-clamp-2">${i.description}</p>
+                    </div>
+                </div>
+            `).join('');
+
+            updateAuthUI();
+            lucide.createIcons();
+        }
+
+        // --- Auth & Profile ---
+        function updateAuthUI() {
+            const section = document.getElementById('authSection');
+            if (currentUser) {
+                section.innerHTML = `
+                    <button onclick="toggleModal('publishModal', true)" class="hidden sm:flex items-center gap-2 text-indigo-600 font-bold px-4 hover:bg-indigo-50 rounded-xl py-2"><i data-lucide="plus"></i> <span>發佈</span></button>
+                    <button onclick="openProfile()" class="flex items-center gap-2 bg-indigo-50 p-2 rounded-full px-4 text-indigo-600 font-bold border border-indigo-100 hover:bg-indigo-100 transition-all"><i data-lucide="user"></i> <span>${currentUser.name}</span></button>
+                `;
+            } else {
+                section.innerHTML = `<button onclick="toggleModal('authModal', true)" class="bg-indigo-600 text-white px-6 py-2.5 rounded-full font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all">登錄 / 註冊</button>`;
+            }
+            lucide.createIcons();
+        }
+
+        function openProfile() {
+            if(!currentUser) return;
+            document.getElementById('profileName').textContent = currentUser.name;
+            const myItems = loadData().filter(i => i.owner === currentUser.name);
+            document.getElementById('profileContent').innerHTML = `
+                <section>
+                    <h4 class="text-sm font-bold text-neutral-400 mb-4 uppercase tracking-widest">我發佈的物品 (${myItems.length})</h4>
+                    <div class="space-y-3">
+                        ${myItems.map(i => `
+                            <div class="flex items-center justify-between p-3 bg-neutral-50 rounded-xl border border-neutral-100">
+                                <div class="flex-1 min-w-0 mr-4"><p class="font-bold text-sm truncate">${i.title}</p><p class="text-[10px] text-indigo-600">MOP ${i.price}</p></div>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-[9px] font-bold px-2 py-0.5 rounded-full ${i.status==='active'?'bg-green-100 text-green-700':'bg-neutral-200'}">${i.status === 'active' ? '上架中' : '已完成'}</span>
+                                    <button onclick="toggleStatus('${i.id}', event)" class="p-1.5 hover:bg-indigo-100 rounded-lg text-indigo-600 transition-all" title="切換狀態"><i data-lucide="check-circle" class="w-4 h-4"></i></button>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </section>
+            `;
+            lucide.createIcons();
+            toggleModal('profileModal', true);
+        }
+
+        // --- Interaction Helpers ---
+        function toggleModal(id, show) { document.getElementById(id).classList.toggle('hidden', !show); }
+        function closeModals() { ['publishModal', 'authModal', 'profileModal', 'detailModal'].forEach(id => toggleModal(id, false)); }
+
+        function setCategory(cat) { currentCategory = cat; renderUI(); }
+        function setFilter(f) { currentFilter = f; renderUI(); }
+
+        function renderUI() {
+            document.getElementById('categoryBar').innerHTML = CATS.map(c => `<button onclick="setCategory('${c}')" class="px-6 py-2.5 rounded-2xl text-sm font-bold whitespace-nowrap border transition-all ${currentCategory===c?'bg-indigo-600 text-white shadow-lg ring-4 ring-indigo-50':'bg-white text-neutral-500 border-neutral-100 hover:bg-indigo-50'}">${c}</button>`).join('');
+            document.getElementById('filterBar').innerHTML = FILTERS.map(f => `<button onclick="setFilter('${f}')" class="px-4 py-1.5 rounded-full text-xs font-bold transition-all ${currentFilter===f?'bg-neutral-800 text-white':'bg-neutral-100 text-neutral-500 hover:bg-neutral-200'}">${f}</button>`).join('');
+            renderList();
+        }
+
+        function toggleStatus(id, e) {
+            if(e) e.stopPropagation();
+            const records = loadData();
+            const i = records.findIndex(r => r.id === id);
+            if(i > -1) {
+                records[i].status = records[i].status === 'active' ? 'done' : 'active';
+                localStorage.setItem("records", JSON.stringify(records));
+                renderUI();
+                if(!document.getElementById('profileModal').classList.contains('hidden')) openProfile();
+                else closeModals();
+            }
+        }
+
+        function showDetail(id) {
+            const data = loadData();
+            const item = data.find(r => r.id === id);
+            const modal = document.getElementById('detailModal');
+            const isOwner = currentUser && item.owner === currentUser.name;
+            
+            modal.innerHTML = `
+                <div class="bg-white w-full max-w-2xl max-h-[90vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col relative">
+                    <div class="p-6 border-b flex items-center justify-between">
+                        <div><h3 class="text-xl font-bold">${item.title}</h3><p class="text-indigo-600 font-bold">MOP ${item.price}</p></div>
+                        <button onclick="closeModals()"><i data-lucide="x" class="w-6 h-6"></i></button>
+                    </div>
+                    <div class="flex-1 overflow-y-auto p-8 space-y-8">
+                        ${isOwner ? `<div class="bg-neutral-50 p-6 rounded-2xl border"><button onclick="toggleStatus('${item.id}')" class="w-full py-3 rounded-xl font-bold ${item.status==='active'?'bg-neutral-200 text-neutral-700':'bg-indigo-600 text-white'}">${item.status==='active'?'標記為已售出':'重新上架'}</button></div>`:''}
+                        <img src="${item.imageUrl}" class="w-full h-80 object-cover rounded-3xl shadow-sm">
+                        <div><h4 class="text-xs font-bold text-neutral-400 uppercase mb-3">物品詳情</h4><p class="text-neutral-700 leading-relaxed">${item.description}</p></div>
+                        
+                        <!-- 留言板 -->
+                        <div class="pt-8 border-t">
+                            <h4 class="text-xs font-bold text-neutral-400 uppercase mb-4 flex items-center gap-2"><i data-lucide="message-square" class="w-4 h-4"></i> 留言板 (${item.comments.length})</h4>
+                            <div class="space-y-4 mb-6" id="commentList">
+                                ${item.comments.length === 0 ? '<p class="text-neutral-400 text-sm italic py-4 text-center">暫無留言，快來搶沙發！</p>' : item.comments.map(c => `
+                                    <div class="bg-neutral-50 p-4 rounded-2xl">
+                                        <div class="flex justify-between items-center mb-1"><span class="font-bold text-xs text-indigo-600">${c.author}</span><span class="text-[10px] text-neutral-400">${new Date(c.createdAt).toLocaleString()}</span></div>
+                                        <p class="text-sm text-neutral-700">${c.content}</p>
+                                    </div>
+                                `).join('')}
+                            </div>
+                            <form onsubmit="addComment(event, '${item.id}')" class="flex gap-2">
+                                <input id="comment-input" required placeholder="想詢問什麼？" class="flex-1 px-4 py-3 bg-neutral-50 border rounded-2xl text-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                                <button type="submit" class="bg-indigo-600 text-white p-3 rounded-2xl hover:bg-indigo-700"><i data-lucide="send" class="w-5 h-5"></i></button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            `;
+            toggleModal('detailModal', true);
+            lucide.createIcons();
+        }
+
+        function addComment(e, itemId) {
+            e.preventDefault();
+            const input = document.getElementById('comment-input');
+            const records = loadData();
+            const i = records.findIndex(r => r.id === itemId);
+            if(i > -1) {
+                records[i].comments.push({
+                    author: currentUser ? currentUser.name : "匿名用戶",
+                    content: input.value,
+                    createdAt: new Date().toISOString()
+                });
+                localStorage.setItem("records", JSON.stringify(records));
+                showDetail(itemId); // 重新渲染詳情頁以顯示新留言
+            }
+        }
+
+        function logout() { currentUser = null; localStorage.removeItem('session'); closeModals(); renderUI(); }
+
+        // --- Initial Events ---
+        document.getElementById('publishForm').onsubmit = async (e) => {
+            e.preventDefault();
+            const submitBtn = document.getElementById('p-submit');
+            submitBtn.disabled = true;
+            submitBtn.textContent = '處理中...';
+
+            let imageUrl = document.getElementById('p-image').value || 'https://images.unsplash.com/photo-1632661674596-df8be070a5c5?w=500';
+            const fileInput = document.getElementById('p-file');
+            
+            // 處理電腦檔案上傳 (轉 Base64)
+            if (fileInput.files && fileInput.files[0]) {
+                const file = fileInput.files[0];
+                imageUrl = await new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => resolve(e.target.result);
+                    reader.readAsDataURL(file);
+                });
+            }
+
+            saveData({
+                title: document.getElementById('p-title').value,
+                price: document.getElementById('p-price').value,
+                category: document.getElementById('p-category').value,
+                description: document.getElementById('p-desc').value,
+                imageUrl: imageUrl
+            });
+
+            submitBtn.disabled = false;
+            submitBtn.textContent = '確認發佈';
+            e.target.reset(); closeModals(); renderUI();
+        };
+
+        document.getElementById('authForm').onsubmit = (e) => {
+            e.preventDefault();
+            currentUser = { name: document.getElementById('login-user').value };
+            localStorage.setItem('session', JSON.stringify(currentUser));
+            closeModals(); renderUI();
+        };
+
+        document.getElementById('searchInput').oninput = (e) => { searchQuery = e.target.value; renderList(); };
+
+        window.onload = () => {
+            currentUser = JSON.parse(localStorage.getItem('session'));
+            if(loadData().length === 0) {
+                saveData({title: 'iPhone 13 Pro', price: 4500, category: '數碼產品', description: '九成新。', imageUrl: 'https://images.unsplash.com/photo-1632661674596-df8be070a5c5?w=500'});
+                saveData({title: '二手木桌', price: 300, category: '家居生活', description: '穩固。', imageUrl: 'https://images.unsplash.com/photo-1577140917170-285929fb55b7?w=500'});
+            }
+            renderUI();
+        };
+    </script>
+</body>
+</html>
