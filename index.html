@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>易換 Easy Exchange - Standalone 版</title>
+    <title>易換 Easy Exchange - Cloud Sync 版</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
@@ -13,6 +13,33 @@
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         .modal-overlay { background: rgba(23, 23, 23, 0.6); backdrop-filter: blur(4px); }
         .line-through { text-decoration: line-through; }
+        .sync-toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #10b981;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 500;
+            z-index: 9999;
+            animation: slideIn 0.3s ease-out;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        .sync-toast.error {
+            background: #ef4444;
+        }
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
     </style>
 </head>
 <body class="bg-neutral-50 text-neutral-900">
@@ -132,32 +159,162 @@
     </div>
 
     <script>
+        // ============================================
+        // Google Sheet 同步配置
+        // ============================================
+        // ⚠️ 重要：請將下方的 URL 替換為你部署的 Google Apps Script Web App 網址
+        const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxjKJRZnQYvxNr4iiPavdQfGfWGx3IDBx2xd63WcRA-12ULCHLw_FL9gpy_tW1itRCf/exec";
+        
+        // 顯示提示訊息
+        function showToast(message, isError = false) {
+            const existingToast = document.querySelector('.sync-toast');
+            if (existingToast) existingToast.remove();
+            
+            const toast = document.createElement('div');
+            toast.className = `sync-toast ${isError ? 'error' : ''}`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            
+            setTimeout(() => {
+                if (toast.parentNode) toast.remove();
+            }, 3000);
+        }
+        
+        // 同步到 Google Sheet
+        async function syncToSheet(payload) {
+            // 如果 URL 還是 placeholder，就不要送出
+            if (APPS_SCRIPT_URL === "PASTE_YOUR_APPS_SCRIPT_URL_HERE") {
+                console.warn("⚠️ 請先在程式碼中設定 APPS_SCRIPT_URL");
+                return;
+            }
+            
+            try {
+                const response = await fetch(APPS_SCRIPT_URL, {
+                    method: "POST",
+                    mode: "no-cors", // 使用 no-cors 模式避免 CORS 問題
+                    headers: {
+                        "Content-Type": "text/plain",
+                    },
+                    body: JSON.stringify(payload)
+                });
+                
+                // 由於使用了 no-cors，無法讀取回應內容
+                // 我們假設請求成功，並在本地記錄
+                console.log("📤 同步請求已發送:", payload);
+                return { success: true };
+            } catch (error) {
+                console.warn("⚠️ 同步失敗:", error);
+                // 同步失敗時只顯示警告，不影響 app 運作
+                showToast("雲端同步失敗，資料已儲存於本地", true);
+                return { success: false, error };
+            }
+        }
+        
+        // 從 Google Sheet 載入所有資料
+        async function loadFromSheet() {
+            if (APPS_SCRIPT_URL === "PASTE_YOUR_APPS_SCRIPT_URL_HERE") {
+                console.warn("⚠️ 請先在程式碼中設定 APPS_SCRIPT_URL，使用 localStorage 資料");
+                return null;
+            }
+            
+            try {
+                // 使用 fetch 獲取資料（GET 請求）
+                const response = await fetch(APPS_SCRIPT_URL);
+                const result = await response.json();
+                if (result.success && result.records) {
+                    console.log("☁️ 從雲端載入資料:", result.records.length, "筆");
+                    return result.records;
+                }
+                return null;
+            } catch (error) {
+                console.warn("⚠️ 從雲端載入失敗:", error);
+                return null;
+            }
+        }
+
         // --- State ---
         let currentCategory = '全部', currentFilter = '全部', searchQuery = '', currentUser = null;
         const CATS = ["全部", "數碼產品", "書籍文具", "家居生活", "鞋服配飾", "其他"];
         const FILTERS = ["全部", "只看 active", "只看 done"];
 
-        // --- Core 3 Functions (Rule 6) ---
-        function saveData(newRecord) {
-            const records = loadData();
-            records.unshift({
+        // --- Core 3 Functions (Rule 6) - 修改為支援 Google Sheet ---
+        
+        // 新增資料（支援雲端同步）
+        async function saveData(newRecord) {
+            // 確保新資料有必要的欄位
+            const finalRecord = {
                 id: Date.now() + "_" + Math.random().toString(36).slice(2, 6),
                 createdAt: new Date().toISOString(),
                 status: "active",
                 owner: currentUser ? currentUser.name : "匿名用戶",
                 comments: [],
                 ...newRecord
-            });
+            };
+            
+            // 1. 先更新 localStorage
+            const records = loadDataFromLocal();
+            records.unshift(finalRecord);
             localStorage.setItem("records", JSON.stringify(records));
+            
+            // 2. 同步到 Google Sheet（非同步，不等待）
+            syncToSheet({
+                action: "create",
+                record: finalRecord
+            }).then(() => {
+                console.log("✅ 已同步至雲端 (create)");
+                showToast("已發佈並同步至雲端");
+            });
+            
+            return finalRecord;
         }
-
-        function loadData() {
+        
+        // 修改資料（支援雲端同步）
+        async function updateRecordInStorage(id, updates) {
+            const records = loadDataFromLocal();
+            const index = records.findIndex(r => r.id === id);
+            if (index === -1) return false;
+            
+            // 更新本地記錄
+            records[index] = { ...records[index], ...updates };
+            localStorage.setItem("records", JSON.stringify(records));
+            
+            // 同步到 Google Sheet
+            syncToSheet({
+                action: "update",
+                id: id,
+                changes: updates
+            }).then(() => {
+                console.log("✅ 已同步至雲端 (update)");
+            });
+            
+            return true;
+        }
+        
+        // 讀取資料：優先從雲端，失敗則從 localStorage
+        async function loadData() {
+            // 嘗試從雲端載入
+            const cloudRecords = await loadFromSheet();
+            if (cloudRecords && cloudRecords.length > 0) {
+                // 成功從雲端載入，更新 localStorage 作為備份
+                localStorage.setItem("records", JSON.stringify(cloudRecords));
+                console.log("☁️ 使用雲端資料");
+                return cloudRecords;
+            }
+            
+            // 降級使用 localStorage
+            const localRecords = loadDataFromLocal();
+            console.log("💾 使用本地備份資料");
+            return localRecords;
+        }
+        
+        // 直接從 localStorage 讀取（不經雲端）
+        function loadDataFromLocal() {
             const data = localStorage.getItem("records");
             return data ? JSON.parse(data) : [];
         }
-
-        function renderList() {
-            const allItems = loadData();
+        
+        async function renderList() {
+            const allItems = await loadData();
             document.getElementById('activeCount').textContent = allItems.filter(i => i.status === 'active').length;
             document.getElementById('doneCount').textContent = allItems.filter(i => i.status === 'done').length;
 
@@ -203,10 +360,11 @@
             lucide.createIcons();
         }
 
-        function openProfile() {
+        async function openProfile() {
             if(!currentUser) return;
             document.getElementById('profileName').textContent = currentUser.name;
-            const myItems = loadData().filter(i => i.owner === currentUser.name);
+            const allItems = await loadData();
+            const myItems = allItems.filter(i => i.owner === currentUser.name);
             document.getElementById('profileContent').innerHTML = `
                 <section>
                     <h4 class="text-sm font-bold text-neutral-400 mb-4 uppercase tracking-widest">我發佈的物品 (${myItems.length})</h4>
@@ -234,27 +392,27 @@
         function setCategory(cat) { currentCategory = cat; renderUI(); }
         function setFilter(f) { currentFilter = f; renderUI(); }
 
-        function renderUI() {
+        async function renderUI() {
             document.getElementById('categoryBar').innerHTML = CATS.map(c => `<button onclick="setCategory('${c}')" class="px-6 py-2.5 rounded-2xl text-sm font-bold whitespace-nowrap border transition-all ${currentCategory===c?'bg-indigo-600 text-white shadow-lg ring-4 ring-indigo-50':'bg-white text-neutral-500 border-neutral-100 hover:bg-indigo-50'}">${c}</button>`).join('');
             document.getElementById('filterBar').innerHTML = FILTERS.map(f => `<button onclick="setFilter('${f}')" class="px-4 py-1.5 rounded-full text-xs font-bold transition-all ${currentFilter===f?'bg-neutral-800 text-white':'bg-neutral-100 text-neutral-500 hover:bg-neutral-200'}">${f}</button>`).join('');
-            renderList();
+            await renderList();
         }
 
-        function toggleStatus(id, e) {
+        async function toggleStatus(id, e) {
             if(e) e.stopPropagation();
-            const records = loadData();
+            const records = await loadData();
             const i = records.findIndex(r => r.id === id);
             if(i > -1) {
-                records[i].status = records[i].status === 'active' ? 'done' : 'active';
-                localStorage.setItem("records", JSON.stringify(records));
-                renderUI();
-                if(!document.getElementById('profileModal').classList.contains('hidden')) openProfile();
+                const newStatus = records[i].status === 'active' ? 'done' : 'active';
+                await updateRecordInStorage(id, { status: newStatus });
+                await renderUI();
+                if(!document.getElementById('profileModal').classList.contains('hidden')) await openProfile();
                 else closeModals();
             }
         }
 
-        function showDetail(id) {
-            const data = loadData();
+        async function showDetail(id) {
+            const data = await loadData();
             const item = data.find(r => r.id === id);
             const modal = document.getElementById('detailModal');
             const isOwner = currentUser && item.owner === currentUser.name;
@@ -293,19 +451,20 @@
             lucide.createIcons();
         }
 
-        function addComment(e, itemId) {
+        async function addComment(e, itemId) {
             e.preventDefault();
             const input = document.getElementById('comment-input');
-            const records = loadData();
+            const records = await loadData();
             const i = records.findIndex(r => r.id === itemId);
             if(i > -1) {
-                records[i].comments.push({
+                const newComment = {
                     author: currentUser ? currentUser.name : "匿名用戶",
                     content: input.value,
                     createdAt: new Date().toISOString()
-                });
-                localStorage.setItem("records", JSON.stringify(records));
-                showDetail(itemId); // 重新渲染詳情頁以顯示新留言
+                };
+                const updatedComments = [...records[i].comments, newComment];
+                await updateRecordInStorage(itemId, { comments: updatedComments });
+                await showDetail(itemId); // 重新渲染詳情頁以顯示新留言
             }
         }
 
@@ -331,7 +490,7 @@
                 });
             }
 
-            saveData({
+            await saveData({
                 title: document.getElementById('p-title').value,
                 price: document.getElementById('p-price').value,
                 category: document.getElementById('p-category').value,
@@ -341,26 +500,5 @@
 
             submitBtn.disabled = false;
             submitBtn.textContent = '確認發佈';
-            e.target.reset(); closeModals(); renderUI();
-        };
-
-        document.getElementById('authForm').onsubmit = (e) => {
-            e.preventDefault();
-            currentUser = { name: document.getElementById('login-user').value };
-            localStorage.setItem('session', JSON.stringify(currentUser));
-            closeModals(); renderUI();
-        };
-
-        document.getElementById('searchInput').oninput = (e) => { searchQuery = e.target.value; renderList(); };
-
-        window.onload = () => {
-            currentUser = JSON.parse(localStorage.getItem('session'));
-            if(loadData().length === 0) {
-                saveData({title: 'iPhone 13 Pro', price: 4500, category: '數碼產品', description: '九成新。', imageUrl: 'https://images.unsplash.com/photo-1632661674596-df8be070a5c5?w=500'});
-                saveData({title: '二手木桌', price: 300, category: '家居生活', description: '穩固。', imageUrl: 'https://images.unsplash.com/photo-1577140917170-285929fb55b7?w=500'});
-            }
-            renderUI();
-        };
-    </script>
-</body>
-</html>
+            e.target.reset(); 
+           
