@@ -163,7 +163,7 @@
         // Google Sheet 同步配置
         // ============================================
         // ⚠️ 重要：請將下方的 URL 替換為你部署的 Google Apps Script Web App 網址
-        const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxjKJRZnQYvxNr4iiPavdQfGfWGx3IDBx2xd63WcRA-12ULCHLw_FL9gpy_tW1itRCf/exec";
+        const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbymTNz2sRZHVJwB5hBiXGhByQGIY8wtWBeWetJijS-PpzY8HeSf5SWP7OIRcN_oGVkpgA/exec";
         
         // 顯示提示訊息
         function showToast(message, isError = false) {
@@ -180,37 +180,30 @@
             }, 3000);
         }
         
-        // 同步到 Google Sheet
+        // 同步到 Google Sheet (POST)
         async function syncToSheet(payload) {
-            // 如果 URL 還是 placeholder，就不要送出
+            // 若尚未填入真實網址，略過同步
             if (APPS_SCRIPT_URL === "PASTE_YOUR_APPS_SCRIPT_URL_HERE") {
                 console.warn("⚠️ 請先在程式碼中設定 APPS_SCRIPT_URL");
                 return;
             }
             
             try {
-                const response = await fetch(APPS_SCRIPT_URL, {
+                await fetch(APPS_SCRIPT_URL, {
                     method: "POST",
-                    mode: "no-cors", // 使用 no-cors 模式避免 CORS 問題
                     headers: {
                         "Content-Type": "text/plain",
                     },
                     body: JSON.stringify(payload)
                 });
-                
-                // 由於使用了 no-cors，無法讀取回應內容
-                // 我們假設請求成功，並在本地記錄
                 console.log("📤 同步請求已發送:", payload);
-                return { success: true };
             } catch (error) {
                 console.warn("⚠️ 同步失敗:", error);
-                // 同步失敗時只顯示警告，不影響 app 運作
                 showToast("雲端同步失敗，資料已儲存於本地", true);
-                return { success: false, error };
             }
         }
         
-        // 從 Google Sheet 載入所有資料
+        // 從 Google Sheet 載入所有資料 (GET)
         async function loadFromSheet() {
             if (APPS_SCRIPT_URL === "PASTE_YOUR_APPS_SCRIPT_URL_HERE") {
                 console.warn("⚠️ 請先在程式碼中設定 APPS_SCRIPT_URL，使用 localStorage 資料");
@@ -218,7 +211,6 @@
             }
             
             try {
-                // 使用 fetch 獲取資料（GET 請求）
                 const response = await fetch(APPS_SCRIPT_URL);
                 const result = await response.json();
                 if (result.success && result.records) {
@@ -237,11 +229,29 @@
         const CATS = ["全部", "數碼產品", "書籍文具", "家居生活", "鞋服配飾", "其他"];
         const FILTERS = ["全部", "只看 active", "只看 done"];
 
-        // --- Core 3 Functions (Rule 6) - 修改為支援 Google Sheet ---
+        // --- Core Functions (localStorage + cloud sync) ---
         
-        // 新增資料（支援雲端同步）
+        // 直接從 localStorage 讀取
+        function loadDataFromLocal() {
+            const data = localStorage.getItem("records");
+            return data ? JSON.parse(data) : [];
+        }
+        
+        // 主要讀取：先雲端再本地
+        async function loadData() {
+            const cloudRecords = await loadFromSheet();
+            if (cloudRecords && cloudRecords.length > 0) {
+                localStorage.setItem("records", JSON.stringify(cloudRecords));
+                console.log("☁️ 使用雲端資料");
+                return cloudRecords;
+            }
+            const localRecords = loadDataFromLocal();
+            console.log("💾 使用本地備份資料");
+            return localRecords;
+        }
+        
+        // 新增資料
         async function saveData(newRecord) {
-            // 確保新資料有必要的欄位
             const finalRecord = {
                 id: Date.now() + "_" + Math.random().toString(36).slice(2, 6),
                 createdAt: new Date().toISOString(),
@@ -251,66 +261,32 @@
                 ...newRecord
             };
             
-            // 1. 先更新 localStorage
+            // 存入 localStorage
             const records = loadDataFromLocal();
             records.unshift(finalRecord);
             localStorage.setItem("records", JSON.stringify(records));
             
-            // 2. 同步到 Google Sheet（非同步，不等待）
-            syncToSheet({
-                action: "create",
-                record: finalRecord
-            }).then(() => {
-                console.log("✅ 已同步至雲端 (create)");
+            // 非同步同步到雲端
+            syncToSheet({ action: "create", record: finalRecord }).then(() => {
                 showToast("已發佈並同步至雲端");
             });
             
             return finalRecord;
         }
         
-        // 修改資料（支援雲端同步）
+        // 修改資料
         async function updateRecordInStorage(id, updates) {
             const records = loadDataFromLocal();
             const index = records.findIndex(r => r.id === id);
             if (index === -1) return false;
             
-            // 更新本地記錄
             records[index] = { ...records[index], ...updates };
             localStorage.setItem("records", JSON.stringify(records));
             
-            // 同步到 Google Sheet
-            syncToSheet({
-                action: "update",
-                id: id,
-                changes: updates
-            }).then(() => {
-                console.log("✅ 已同步至雲端 (update)");
-            });
+            // 同步到雲端
+            syncToSheet({ action: "update", id: id, changes: updates });
             
             return true;
-        }
-        
-        // 讀取資料：優先從雲端，失敗則從 localStorage
-        async function loadData() {
-            // 嘗試從雲端載入
-            const cloudRecords = await loadFromSheet();
-            if (cloudRecords && cloudRecords.length > 0) {
-                // 成功從雲端載入，更新 localStorage 作為備份
-                localStorage.setItem("records", JSON.stringify(cloudRecords));
-                console.log("☁️ 使用雲端資料");
-                return cloudRecords;
-            }
-            
-            // 降級使用 localStorage
-            const localRecords = loadDataFromLocal();
-            console.log("💾 使用本地備份資料");
-            return localRecords;
-        }
-        
-        // 直接從 localStorage 讀取（不經雲端）
-        function loadDataFromLocal() {
-            const data = localStorage.getItem("records");
-            return data ? JSON.parse(data) : [];
         }
         
         async function renderList() {
@@ -500,5 +476,21 @@
 
             submitBtn.disabled = false;
             submitBtn.textContent = '確認發佈';
-            e.target.reset(); 
-           
+            e.target.reset();
+            closeModals();
+            await renderUI();
+            showToast('物品已發佈');
+        };
+
+        document.getElementById('searchInput').addEventListener('input', (e) => {
+            searchQuery = e.target.value;
+            renderUI();
+        });
+
+        // 預設登入一位測試用戶（可自行移除）
+        // currentUser = { name: "測試用戶" };
+        // 啟動時渲染
+        renderUI();
+    </script>
+</body>
+</html>
