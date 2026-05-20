@@ -31,14 +31,8 @@
             background: #ef4444;
         }
         @keyframes slideIn {
-            from {
-                transform: translateX(100%);
-                opacity: 0;
-            }
-            to {
-                transform: translateX(0);
-                opacity: 1;
-            }
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
         }
     </style>
 </head>
@@ -53,21 +47,16 @@
                 </div>
                 <h1 class="text-2xl font-bold tracking-tight bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">易換</h1>
             </div>
-
             <div class="flex-1 max-w-xl relative hidden md:block">
                 <i data-lucide="search" class="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400 w-5 h-5"></i>
                 <input type="text" id="searchInput" placeholder="搜索您感興趣的物品..." 
                     class="w-full pl-12 pr-4 py-2.5 bg-neutral-100 border-none rounded-2xl focus:ring-2 focus:ring-indigo-500 transition-all outline-none">
             </div>
-
-            <div class="flex items-center gap-3" id="authSection">
-                <!-- Dynamically filled -->
-            </div>
+            <div class="flex items-center gap-3" id="authSection"></div>
         </div>
     </header>
 
     <main class="max-w-7xl mx-auto px-4 py-8">
-        <!-- Stats -->
         <div class="mb-6 flex items-center gap-4 bg-white p-4 rounded-2xl border border-neutral-200 w-fit">
             <div class="flex items-center gap-2">
                 <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
@@ -79,12 +68,12 @@
                 <span class="text-sm font-bold text-neutral-600">Done: <span id="doneCount">0</span></span>
             </div>
         </div>
-
         <div class="flex items-center gap-3 overflow-x-auto pb-6 no-scrollbar" id="categoryBar"></div>
         <div class="flex items-center gap-3 mb-8" id="filterBar"></div>
         <div id="itemGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"></div>
     </main>
 
+    <!-- 各種 Modal 保持原樣，此處省略以節省篇幅，與你原本的完全相同 -->
     <!-- Publish Modal -->
     <div id="publishModal" class="fixed inset-0 z-50 modal-overlay hidden flex items-center justify-center p-4">
         <div class="bg-white w-full max-w-lg max-h-[85vh] rounded-3xl shadow-2xl flex flex-col relative overflow-hidden">
@@ -159,97 +148,95 @@
     </div>
 
     <script>
-        // ============================================
-        // Google Sheet 同步配置
-        // ============================================
-        // ⚠️ 重要：請將下方的 URL 替換為你部署的 Google Apps Script Web App 網址
+        // ========== 安全輔助：避免 lucide 未載入報錯 ==========
+        function safeCreateIcons() {
+            if (window.lucide && typeof lucide.createIcons === 'function') {
+                lucide.createIcons();
+            }
+        }
+
+        // ========== Google Sheet 同步設定 ==========
+        // ⚠️ 部署 Apps Script 後，將網址貼到這裡
         const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbymTNz2sRZHVJwB5hBiXGhByQGIY8wtWBeWetJijS-PpzY8HeSf5SWP7OIRcN_oGVkpgA/exec";
-        
-        // 顯示提示訊息
+
+        // 顯示提示
         function showToast(message, isError = false) {
-            const existingToast = document.querySelector('.sync-toast');
-            if (existingToast) existingToast.remove();
-            
+            const old = document.querySelector('.sync-toast');
+            if (old) old.remove();
             const toast = document.createElement('div');
             toast.className = `sync-toast ${isError ? 'error' : ''}`;
             toast.textContent = message;
             document.body.appendChild(toast);
-            
-            setTimeout(() => {
-                if (toast.parentNode) toast.remove();
-            }, 3000);
+            setTimeout(() => { if (toast.parentNode) toast.remove(); }, 3000);
         }
-        
-        // 同步到 Google Sheet (POST)
+
+        // 同步到 Sheet (POST)
         async function syncToSheet(payload) {
-            // 若尚未填入真實網址，略過同步
             if (APPS_SCRIPT_URL === "PASTE_YOUR_APPS_SCRIPT_URL_HERE") {
-                console.warn("⚠️ 請先在程式碼中設定 APPS_SCRIPT_URL");
+                console.warn("請設定 APPS_SCRIPT_URL");
                 return;
             }
-            
             try {
                 await fetch(APPS_SCRIPT_URL, {
                     method: "POST",
-                    headers: {
-                        "Content-Type": "text/plain",
-                    },
+                    headers: { "Content-Type": "text/plain" },
                     body: JSON.stringify(payload)
                 });
-                console.log("📤 同步請求已發送:", payload);
-            } catch (error) {
-                console.warn("⚠️ 同步失敗:", error);
-                showToast("雲端同步失敗，資料已儲存於本地", true);
+                console.log("📤 已同步", payload);
+            } catch (e) {
+                console.warn("同步失敗", e);
+                showToast("雲端同步失敗，已存於本地", true);
             }
         }
-        
-        // 從 Google Sheet 載入所有資料 (GET)
+
+        // 從 Sheet 讀取 (GET)
         async function loadFromSheet() {
             if (APPS_SCRIPT_URL === "PASTE_YOUR_APPS_SCRIPT_URL_HERE") {
-                console.warn("⚠️ 請先在程式碼中設定 APPS_SCRIPT_URL，使用 localStorage 資料");
+                console.warn("尚未設定 APPS_SCRIPT_URL，僅使用本地資料");
                 return null;
             }
-            
             try {
-                const response = await fetch(APPS_SCRIPT_URL);
-                const result = await response.json();
+                const res = await fetch(APPS_SCRIPT_URL);
+                const result = await res.json();
                 if (result.success && result.records) {
-                    console.log("☁️ 從雲端載入資料:", result.records.length, "筆");
+                    console.log("☁️ 雲端資料筆數:", result.records.length);
                     return result.records;
                 }
                 return null;
-            } catch (error) {
-                console.warn("⚠️ 從雲端載入失敗:", error);
+            } catch (e) {
+                console.warn("從雲端載入失敗", e);
                 return null;
             }
         }
 
-        // --- State ---
+        // --- 狀態 ---
         let currentCategory = '全部', currentFilter = '全部', searchQuery = '', currentUser = null;
         const CATS = ["全部", "數碼產品", "書籍文具", "家居生活", "鞋服配飾", "其他"];
         const FILTERS = ["全部", "只看 active", "只看 done"];
 
-        // --- Core Functions (localStorage + cloud sync) ---
-        
-        // 直接從 localStorage 讀取
+        // --- 核心資料層 (localStorage 為主，雲端為輔) ---
         function loadDataFromLocal() {
             const data = localStorage.getItem("records");
             return data ? JSON.parse(data) : [];
         }
-        
-        // 主要讀取：先雲端再本地
+
+        // 主讀取函式：永遠先回傳本地資料，再非同步更新雲端備份
         async function loadData() {
-            const cloudRecords = await loadFromSheet();
-            if (cloudRecords && cloudRecords.length > 0) {
-                localStorage.setItem("records", JSON.stringify(cloudRecords));
-                console.log("☁️ 使用雲端資料");
-                return cloudRecords;
-            }
-            const localRecords = loadDataFromLocal();
-            console.log("💾 使用本地備份資料");
-            return localRecords;
+            // 第一步：立即從本地讀取，保證 UI 有資料可顯示
+            const local = loadDataFromLocal();
+            
+            // 第二步：背景嘗試從雲端更新（不阻塞 UI）
+            loadFromSheet().then(cloudRecords => {
+                if (cloudRecords && cloudRecords.length > 0) {
+                    localStorage.setItem("records", JSON.stringify(cloudRecords));
+                    console.log("☁️ 本地已更新為雲端資料");
+                }
+            }).catch(() => {});
+            
+            // 回傳本地資料（有可能為空陣列，但不會是 null）
+            return local;
         }
-        
+
         // 新增資料
         async function saveData(newRecord) {
             const finalRecord = {
@@ -260,35 +247,27 @@
                 comments: [],
                 ...newRecord
             };
-            
-            // 存入 localStorage
             const records = loadDataFromLocal();
             records.unshift(finalRecord);
             localStorage.setItem("records", JSON.stringify(records));
-            
-            // 非同步同步到雲端
             syncToSheet({ action: "create", record: finalRecord }).then(() => {
                 showToast("已發佈並同步至雲端");
             });
-            
             return finalRecord;
         }
-        
+
         // 修改資料
         async function updateRecordInStorage(id, updates) {
             const records = loadDataFromLocal();
             const index = records.findIndex(r => r.id === id);
             if (index === -1) return false;
-            
             records[index] = { ...records[index], ...updates };
             localStorage.setItem("records", JSON.stringify(records));
-            
-            // 同步到雲端
             syncToSheet({ action: "update", id: id, changes: updates });
-            
             return true;
         }
-        
+
+        // --- 渲染 ---
         async function renderList() {
             const allItems = await loadData();
             document.getElementById('activeCount').textContent = allItems.filter(i => i.status === 'active').length;
@@ -319,10 +298,9 @@
             `).join('');
 
             updateAuthUI();
-            lucide.createIcons();
+            safeCreateIcons(); // 安全呼叫
         }
 
-        // --- Auth & Profile ---
         function updateAuthUI() {
             const section = document.getElementById('authSection');
             if (currentUser) {
@@ -333,7 +311,7 @@
             } else {
                 section.innerHTML = `<button onclick="toggleModal('authModal', true)" class="bg-indigo-600 text-white px-6 py-2.5 rounded-full font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all">登錄 / 註冊</button>`;
             }
-            lucide.createIcons();
+            safeCreateIcons();
         }
 
         async function openProfile() {
@@ -350,18 +328,17 @@
                                 <div class="flex-1 min-w-0 mr-4"><p class="font-bold text-sm truncate">${i.title}</p><p class="text-[10px] text-indigo-600">MOP ${i.price}</p></div>
                                 <div class="flex items-center gap-2">
                                     <span class="text-[9px] font-bold px-2 py-0.5 rounded-full ${i.status==='active'?'bg-green-100 text-green-700':'bg-neutral-200'}">${i.status === 'active' ? '上架中' : '已完成'}</span>
-                                    <button onclick="toggleStatus('${i.id}', event)" class="p-1.5 hover:bg-indigo-100 rounded-lg text-indigo-600 transition-all" title="切換狀態"><i data-lucide="check-circle" class="w-4 h-4"></i></button>
+                                    <button onclick="toggleStatus('${i.id}', event)" class="p-1.5 hover:bg-indigo-100 rounded-lg text-indigo-600 transition-all"><i data-lucide="check-circle" class="w-4 h-4"></i></button>
                                 </div>
                             </div>
                         `).join('')}
                     </div>
                 </section>
             `;
-            lucide.createIcons();
+            safeCreateIcons();
             toggleModal('profileModal', true);
         }
 
-        // --- Interaction Helpers ---
         function toggleModal(id, show) { document.getElementById(id).classList.toggle('hidden', !show); }
         function closeModals() { ['publishModal', 'authModal', 'profileModal', 'detailModal'].forEach(id => toggleModal(id, false)); }
 
@@ -424,7 +401,7 @@
                 </div>
             `;
             toggleModal('detailModal', true);
-            lucide.createIcons();
+            safeCreateIcons();
         }
 
         async function addComment(e, itemId) {
@@ -440,13 +417,13 @@
                 };
                 const updatedComments = [...records[i].comments, newComment];
                 await updateRecordInStorage(itemId, { comments: updatedComments });
-                await showDetail(itemId); // 重新渲染詳情頁以顯示新留言
+                await showDetail(itemId);
             }
         }
 
         function logout() { currentUser = null; localStorage.removeItem('session'); closeModals(); renderUI(); }
 
-        // --- Initial Events ---
+        // --- 事件綁定與初始化 ---
         document.getElementById('publishForm').onsubmit = async (e) => {
             e.preventDefault();
             const submitBtn = document.getElementById('p-submit');
@@ -455,8 +432,6 @@
 
             let imageUrl = document.getElementById('p-image').value || 'https://images.unsplash.com/photo-1632661674596-df8be070a5c5?w=500';
             const fileInput = document.getElementById('p-file');
-            
-            // 處理電腦檔案上傳 (轉 Base64)
             if (fileInput.files && fileInput.files[0]) {
                 const file = fileInput.files[0];
                 imageUrl = await new Promise((resolve) => {
@@ -482,14 +457,23 @@
             showToast('物品已發佈');
         };
 
+        document.getElementById('authForm').onsubmit = (e) => {
+            e.preventDefault();
+            const username = document.getElementById('login-user').value.trim();
+            if (username) {
+                currentUser = { name: username };
+                closeModals();
+                renderUI();
+                showToast(`歡迎，${username}！`);
+            }
+        };
+
         document.getElementById('searchInput').addEventListener('input', (e) => {
             searchQuery = e.target.value;
             renderUI();
         });
 
-        // 預設登入一位測試用戶（可自行移除）
-        // currentUser = { name: "測試用戶" };
-        // 啟動時渲染
+        // 啟動：立刻渲染 UI，就算雲端還沒回應也不會空白
         renderUI();
     </script>
 </body>
