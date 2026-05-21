@@ -157,7 +157,6 @@
         // ========== Google Sheet 同步設定 ==========
         const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbymTNz2sRZHVJwB5hBiXGhByQGIY8wtWBeWetJijS-PpzY8HeSf5SWP7OIRcN_oGVkpgA/exec";
 
-        // 顯示提示
         function showToast(message, isError = false) {
             const old = document.querySelector('.sync-toast');
             if (old) old.remove();
@@ -168,42 +167,46 @@
             setTimeout(() => { if (toast.parentNode) toast.remove(); }, 3000);
         }
 
-        // 同步到 Sheet (POST)
+        // 同步到 Sheet (POST) – 加強版，顯示伺服器錯誤細節
         async function syncToSheet(payload) {
             if (APPS_SCRIPT_URL.includes("PASTE")) {
                 console.warn("請設定 APPS_SCRIPT_URL");
                 return;
             }
             try {
-                await fetch(APPS_SCRIPT_URL, {
+                const response = await fetch(APPS_SCRIPT_URL, {
                     method: "POST",
                     headers: { "Content-Type": "text/plain" },
-                    body: JSON.stringify(payload)
+                    body: JSON.stringify(payload),
+                    muteHttpExceptions: true   // 唔會因為 HTTP 錯誤而 throw
                 });
+                const responseText = await response.text();
+                if (!response.ok) {
+                    console.error(`❌ 同步失敗 HTTP ${response.status}: ${responseText}`);
+                    showToast(`雲端同步失敗 (${response.status})，請檢查後端`, true);
+                    return;
+                }
                 console.log("📤 已同步", payload);
             } catch (e) {
-                console.warn("同步失敗", e);
+                console.error("同步網路錯誤", e);
                 showToast("雲端同步失敗，已存於本地", true);
             }
         }
 
-        // --- 資料正規化：兼容 Sheet 大寫 header，同時保留二手平台欄位 ---
+        // 正規化資料（兼容 Sheet 大階 header）
         function normalizeRecord(record) {
             return {
                 id: record.id || record.ID || "",
                 createdAt: record.createdAt || record.CreatedAt || "",
-                // 二手平台主要欄位
                 title: record.title || (record.Content ? record.Content.slice(0, 30) : "無標題"),
                 price: record.price || "",
                 description: record.description || record.Content || "",
                 imageUrl: record.imageUrl || "https://images.unsplash.com/photo-1632661674596-df8be070a5c5?w=500",
-                // 既有 contract 欄位
                 content: record.content || record.Content || "",
                 category: record.category || record.Category || "其他",
                 likes: Number(record.likes !== undefined ? record.likes : (record.Likes || 0)),
                 status: record.status || record.Status || "active",
-                // 保留 owner / comments
-                owner: record.owner || record.Owner || "匿名用戶",
+                owner: record.owner || "匿名用戶",
                 comments: record.comments || []
             };
         }
@@ -252,9 +255,9 @@
             records.unshift(finalRecord);
             localStorage.setItem("records", JSON.stringify(records));
             syncToSheet({ action: "create", record: finalRecord }).then(() => {
-                showToast("已發佈並同步至雲端");
+                // 唔阻住 UI，背景同步
             });
-            await renderList(records);  // 傳入最新 records，唔會即刻 GET 覆蓋
+            await renderList(records);
             return finalRecord;
         }
 
@@ -268,7 +271,7 @@
             return records;
         }
 
-        // --- 渲染卡片（二手平台風格） ---
+        // --- 渲染卡片 ---
         async function renderList(recordsOverride) {
             const records = recordsOverride || await loadData();
             document.getElementById('activeCount').textContent = records.filter(i => i.status === 'active').length;
@@ -409,7 +412,6 @@
                         <img src="${item.imageUrl}" class="w-full h-80 object-cover rounded-3xl shadow-sm" onerror="this.src='https://images.unsplash.com/photo-1632661674596-df8be070a5c5?w=500'">
                         <div><h4 class="text-xs font-bold text-neutral-400 uppercase mb-3">物品詳情</h4><p class="text-neutral-700 leading-relaxed">${item.description}</p></div>
                         
-                        <!-- 留言板 -->
                         <div class="pt-8 border-t">
                             <h4 class="text-xs font-bold text-neutral-400 uppercase mb-4 flex items-center gap-2"><i data-lucide="message-square" class="w-4 h-4"></i> 留言板 (${item.comments.length})</h4>
                             <div class="space-y-4 mb-6" id="commentList">
@@ -447,14 +449,13 @@
                 records[i].comments = updatedComments;
                 localStorage.setItem("records", JSON.stringify(records));
                 syncToSheet({ action: "update", id: itemId, changes: { comments: updatedComments } });
-                // 傳入最新 records 直接更新詳情，避免重新 GET
                 await showDetail(itemId, records);
             }
         }
 
         function logout() { currentUser = null; localStorage.removeItem('session'); closeModals(); renderUI(); }
 
-        // --- AI 摘要功能 ---
+        // --- AI 摘要 ---
         async function askAI(userPrompt) {
             const res = await fetch(APPS_SCRIPT_URL, {
                 method: "POST",
@@ -487,7 +488,7 @@
             }
         }
 
-        // --- 事件綁定與初始化 ---
+        // --- 事件綁定 ---
         document.getElementById('publishForm').onsubmit = async (e) => {
             e.preventDefault();
             const submitBtn = document.getElementById('p-submit');
