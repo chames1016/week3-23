@@ -83,12 +83,12 @@
             <form id="publishForm" class="p-6 space-y-4 overflow-y-auto flex-1">
                 <div>
                     <label class="block text-sm font-medium mb-1">物品名稱</label>
-                    <input required id="p-title" class="w-full px-4 py-2 bg-neutral-50 border rounded-xl outline-none focus:ring-2 focus:ring-indigo-500">
+                    <input id="p-title" class="w-full px-4 py-2 bg-neutral-50 border rounded-xl outline-none focus:ring-2 focus:ring-indigo-500">
                 </div>
                 <div class="grid grid-cols-2 gap-4">
                     <div>
                         <label class="block text-sm font-medium mb-1">預期價值</label>
-                        <input required type="number" id="p-price" class="w-full px-4 py-2 bg-neutral-50 border rounded-xl outline-none">
+                        <input type="number" id="p-price" class="w-full px-4 py-2 bg-neutral-50 border rounded-xl outline-none">
                     </div>
                     <div>
                         <label class="block text-sm font-medium mb-1">分類</label>
@@ -147,17 +147,16 @@
     </div>
 
     <script>
-        // ========== 安全輔助：避免 lucide 未載入報錯 ==========
+        // ========== 安全輔助 ==========
         function safeCreateIcons() {
             if (window.lucide && typeof lucide.createIcons === 'function') {
                 lucide.createIcons();
             }
         }
 
-        // ========== Google Sheet 同步設定 ==========
+        // ========== 設定 ==========
         const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbymTNz2sRZHVJwB5hBiXGhByQGIY8wtWBeWetJijS-PpzY8HeSf5SWP7OIRcN_oGVkpgA/exec";
 
-        // 顯示提示
         function showToast(message, isError = false) {
             const old = document.querySelector('.sync-toast');
             if (old) old.remove();
@@ -168,12 +167,8 @@
             setTimeout(() => { if (toast.parentNode) toast.remove(); }, 3000);
         }
 
-        // 同步到 Sheet (POST)
         async function syncToSheet(payload) {
-            if (APPS_SCRIPT_URL.includes("PASTE")) {
-                console.warn("請設定 APPS_SCRIPT_URL");
-                return;
-            }
+            if (APPS_SCRIPT_URL.includes("PASTE")) return;
             try {
                 await fetch(APPS_SCRIPT_URL, {
                     method: "POST",
@@ -187,7 +182,7 @@
             }
         }
 
-        // --- 資料正規化 ---
+        // 正規化：Sheet 大寫欄位 → 前端小寫欄位
         function normalizeRecord(record) {
             return {
                 id: record.id || record.ID || "",
@@ -199,7 +194,6 @@
             };
         }
 
-        // 從 Sheet 讀取 (GET)
         async function fetchRecordsFromSheet() {
             if (APPS_SCRIPT_URL.includes("PASTE")) return null;
             try {
@@ -217,7 +211,7 @@
         const CATS = ["全部", "數碼產品", "書籍文具", "家居生活", "鞋服配飾", "其他"];
         const FILTERS = ["全部", "只看 active", "只看 done"];
 
-        // --- 核心資料層 (遠端優先，localStorage 為備份) ---
+        // 主要資料載入（遠端優先，localStorage 備份）
         async function loadData() {
             const remote = await fetchRecordsFromSheet();
             if (remote) {
@@ -228,7 +222,7 @@
             return data ? JSON.parse(data) : [];
         }
 
-        // 新增資料 (push 後立刻用最新 records 渲染，避免覆蓋)
+        // 新增吐槽（只取 content, category）
         async function saveData(newRecord) {
             const records = await loadData();
             const finalRecord = {
@@ -237,29 +231,35 @@
                 status: "active",
                 owner: currentUser ? currentUser.name : "匿名用戶",
                 comments: [],
-                ...newRecord
+                // 只保留 contract 定義的欄位，其餘留空
+                title: newRecord.title || "",
+                price: newRecord.price || "",
+                description: newRecord.description || "",
+                imageUrl: newRecord.imageUrl || "",
+                content: newRecord.content || newRecord.description || "",   // 描述即吐槽內容
+                category: newRecord.category || "其他",
+                likes: 0,
             };
             records.unshift(finalRecord);
             localStorage.setItem("records", JSON.stringify(records));
             syncToSheet({ action: "create", record: finalRecord }).then(() => {
                 showToast("已發佈並同步至雲端");
             });
-            await renderList(records);  // 傳入最新 records 立即渲染
+            await renderList(records);
             return finalRecord;
         }
 
-        // 修改資料（包括 likes / comments 等）
         async function updateRecordInStorage(id, updates) {
             const records = await loadData();
             const index = records.findIndex(r => r.id === id);
-            if (index === -1) return false;
+            if (index === -1) return null;
             records[index] = { ...records[index], ...updates };
             localStorage.setItem("records", JSON.stringify(records));
             syncToSheet({ action: "update", id: id, changes: updates });
-            return records;  // 回傳最新 records，供後續使用
+            return records;
         }
 
-        // --- 渲染 ---
+        // --- 渲染卡片 ---
         async function renderList(recordsOverride) {
             const records = recordsOverride || await loadData();
             document.getElementById('activeCount').textContent = records.filter(i => i.status === 'active').length;
@@ -267,29 +267,32 @@
 
             const filtered = records.filter(i => {
                 const mc = currentCategory === '全部' || i.category === currentCategory;
-                const ms = i.title && i.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                           i.content && i.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                           i.description && i.description.toLowerCase().includes(searchQuery.toLowerCase());
+                // 修正搜尋：若 searchQuery 為空則全部通過
+                const ms = searchQuery === '' || 
+                    (i.title && i.title.toLowerCase().includes(searchQuery.toLowerCase())) || 
+                    (i.content && i.content.toLowerCase().includes(searchQuery.toLowerCase())) || 
+                    (i.description && i.description.toLowerCase().includes(searchQuery.toLowerCase()));
                 const mf = currentFilter === '全部' || 
-                           (currentFilter === '只看 active' && i.status === 'active') || 
-                           (currentFilter === '只看 done' && i.status === 'done');
+                    (currentFilter === '只看 active' && i.status === 'active') || 
+                    (currentFilter === '只看 done' && i.status === 'done');
                 return mc && ms && mf;
             });
 
             document.getElementById('itemGrid').innerHTML = filtered.map(i => `
                 <div class="bg-white rounded-3xl overflow-hidden shadow-sm hover:shadow-xl transition-all border border-neutral-100 group cursor-pointer" onclick="showDetail('${i.id}')">
-                    <div class="h-48 relative overflow-hidden">
-                        <img src="${i.imageUrl || 'https://images.unsplash.com/photo-1632661674596-df8be070a5c5?w=500'}" class="w-full h-full object-cover group-hover:scale-105 transition-all">
+                    <div class="h-48 relative overflow-hidden bg-gradient-to-br from-indigo-50 to-violet-50 flex items-center justify-center">
+                        ${i.imageUrl ? 
+                            `<img src="${i.imageUrl}" class="w-full h-full object-cover group-hover:scale-105 transition-all">` :
+                            `<i data-lucide="message-circle" class="w-16 h-16 text-indigo-300"></i>`
+                        }
                         ${i.status === 'done' ? '<div class="absolute inset-0 bg-black/40 flex items-center justify-center text-white font-bold backdrop-blur-sm">已完成</div>' : ''}
                         <div class="absolute top-3 left-3 bg-white/90 px-3 py-1 rounded-full text-[10px] font-bold text-indigo-600 shadow-sm">${i.category}</div>
                     </div>
                     <div class="p-5">
-                        <div class="flex justify-between mb-2 items-start">
-                            <h3 class="font-bold text-neutral-800 line-clamp-1 flex-1 ${i.status==='done'?'line-through text-neutral-400':''}">${i.title || i.content?.slice(0,30) || '無標題'}</h3>
-                            <span class="text-indigo-600 font-bold ml-2">${i.price ? 'MOP '+i.price : ''}</span>
-                        </div>
-                        <p class="text-neutral-500 text-xs line-clamp-2">${i.content || i.description || ''}</p>
-                        <div class="flex items-center justify-between mt-3">
+                        <p class="text-neutral-700 text-sm line-clamp-3 mb-3 ${i.status==='done'?'line-through text-neutral-400':''}">
+                            ${i.content || '（沒有內容）'}
+                        </p>
+                        <div class="flex items-center justify-between">
                             <button onclick="event.stopPropagation(); handleLike('${i.id}')" class="flex items-center gap-1 text-rose-500 hover:bg-rose-50 px-2 py-1 rounded-full transition-colors">
                                 <i data-lucide="heart" class="w-4 h-4"></i>
                                 <span class="text-xs font-medium">${i.likes || 0}</span>
@@ -306,7 +309,6 @@
 
         function updateAuthUI() {
             const section = document.getElementById('authSection');
-            // AI 按鈕統一放在前面
             const aiBtn = `<button onclick="handleAISummary()" id="aiBtn" class="flex items-center gap-2 bg-zinc-800 text-zinc-100 px-4 py-2 rounded-full font-medium hover:bg-zinc-700 transition-colors active:scale-95 border border-zinc-700 disabled:opacity-50">
                 <i data-lucide="sparkles" class="w-4 h-4"></i>
                 <span id="aiBtnText">AI 摘要</span>
@@ -329,11 +331,11 @@
             const myItems = allItems.filter(i => i.owner === currentUser.name);
             document.getElementById('profileContent').innerHTML = `
                 <section>
-                    <h4 class="text-sm font-bold text-neutral-400 mb-4 uppercase tracking-widest">我發佈的物品 (${myItems.length})</h4>
+                    <h4 class="text-sm font-bold text-neutral-400 mb-4 uppercase tracking-widest">我的吐槽 (${myItems.length})</h4>
                     <div class="space-y-3">
                         ${myItems.map(i => `
                             <div class="flex items-center justify-between p-3 bg-neutral-50 rounded-xl border border-neutral-100">
-                                <div class="flex-1 min-w-0 mr-4"><p class="font-bold text-sm truncate">${i.title || i.content?.slice(0,20)}</p><p class="text-[10px] text-indigo-600">${i.price ? 'MOP '+i.price : ''}</p></div>
+                                <div class="flex-1 min-w-0 mr-4"><p class="font-bold text-sm truncate">${i.content?.slice(0,30) || '(無內容)'}</p></div>
                                 <div class="flex items-center gap-2">
                                     <span class="text-[9px] font-bold px-2 py-0.5 rounded-full ${i.status==='active'?'bg-green-100 text-green-700':'bg-neutral-200'}">${i.status === 'active' ? '上架中' : '已完成'}</span>
                                     <button onclick="toggleStatus('${i.id}', event)" class="p-1.5 hover:bg-indigo-100 rounded-lg text-indigo-600 transition-all"><i data-lucide="check-circle" class="w-4 h-4"></i></button>
@@ -379,7 +381,7 @@
                 records[index].likes = (records[index].likes || 0) + 1;
                 localStorage.setItem("records", JSON.stringify(records));
                 syncToSheet({ action: "update", id: id, changes: { likes: records[index].likes } });
-                await renderList(records);  // 用最新 records 渲染，避免重新 GET
+                await renderList(records);
             }
         }
 
@@ -393,13 +395,15 @@
             modal.innerHTML = `
                 <div class="bg-white w-full max-w-2xl max-h-[90vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col relative">
                     <div class="p-6 border-b flex items-center justify-between">
-                        <div><h3 class="text-xl font-bold">${item.title || item.content?.slice(0,30)}</h3><p class="text-indigo-600 font-bold">${item.price ? 'MOP '+item.price : ''}</p></div>
+                        <div>
+                            <h3 class="text-xl font-bold">${item.content?.slice(0, 30) || '吐槽詳情'}</h3>
+                            <p class="text-xs text-neutral-500">${item.category} · ${item.likes || 0} 個讚</p>
+                        </div>
                         <button onclick="closeModals()"><i data-lucide="x" class="w-6 h-6"></i></button>
                     </div>
                     <div class="flex-1 overflow-y-auto p-8 space-y-8">
-                        ${isOwner ? `<div class="bg-neutral-50 p-6 rounded-2xl border"><button onclick="toggleStatus('${item.id}')" class="w-full py-3 rounded-xl font-bold ${item.status==='active'?'bg-neutral-200 text-neutral-700':'bg-indigo-600 text-white'}">${item.status==='active'?'標記為已售出':'重新上架'}</button></div>`:''}
-                        <img src="${item.imageUrl || 'https://images.unsplash.com/photo-1632661674596-df8be070a5c5?w=500'}" class="w-full h-80 object-cover rounded-3xl shadow-sm">
-                        <div><h4 class="text-xs font-bold text-neutral-400 uppercase mb-3">物品詳情</h4><p class="text-neutral-700 leading-relaxed">${item.content || item.description || ''}</p></div>
+                        ${isOwner ? `<div class="bg-neutral-50 p-6 rounded-2xl border"><button onclick="toggleStatus('${item.id}')" class="w-full py-3 rounded-xl font-bold ${item.status==='active'?'bg-neutral-200 text-neutral-700':'bg-indigo-600 text-white'}">${item.status==='active'?'標記為已完成':'重新打開'}</button></div>`:''}
+                        <div><h4 class="text-xs font-bold text-neutral-400 uppercase mb-3">內容</h4><p class="text-neutral-700 leading-relaxed whitespace-pre-wrap">${item.content || '（無內容）'}</p></div>
                         
                         <!-- 留言板 -->
                         <div class="pt-8 border-t">
@@ -413,7 +417,7 @@
                                 `).join('')}
                             </div>
                             <form onsubmit="addComment(event, '${item.id}')" class="flex gap-2">
-                                <input id="comment-input" required placeholder="想詢問什麼？" class="flex-1 px-4 py-3 bg-neutral-50 border rounded-2xl text-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                                <input id="comment-input" required placeholder="想說什麼？" class="flex-1 px-4 py-3 bg-neutral-50 border rounded-2xl text-sm outline-none focus:ring-2 focus:ring-indigo-500">
                                 <button type="submit" class="bg-indigo-600 text-white p-3 rounded-2xl hover:bg-indigo-700"><i data-lucide="send" class="w-5 h-5"></i></button>
                             </form>
                         </div>
@@ -439,14 +443,13 @@
                 records[i].comments = updatedComments;
                 localStorage.setItem("records", JSON.stringify(records));
                 syncToSheet({ action: "update", id: itemId, changes: { comments: updatedComments } });
-                // 傳入最新 records 直接更新詳情，避免重新 GET
                 await showDetail(itemId, records);
             }
         }
 
         function logout() { currentUser = null; localStorage.removeItem('session'); closeModals(); renderUI(); }
 
-        // --- AI 摘要功能 ---
+        // --- AI 摘要 ---
         async function askAI(userPrompt) {
             const res = await fetch(APPS_SCRIPT_URL, {
                 method: "POST",
@@ -466,7 +469,7 @@
                 const records = await loadData();
                 if (records.length === 0) { alert('未有吐槽資料可以摘要'); return; }
                 const summaryInput = records.slice(0, 30).map(r =>
-                    `[${r.category}] ${r.content || r.description || ''}`
+                    `[${r.category}] ${r.content || ''}`
                 ).join('\n');
                 const prompt = '以下是班級吐槽牆嘅留言。請用繁體中文，用 3-5 句概括同學最關心嘅問題、情緒同有冇明顯 patterns:\n\n' + summaryInput;
                 const result = await askAI(prompt);
@@ -479,14 +482,14 @@
             }
         }
 
-        // --- 事件綁定與初始化 ---
+        // --- 事件綁定與啟動 ---
         document.getElementById('publishForm').onsubmit = async (e) => {
             e.preventDefault();
             const submitBtn = document.getElementById('p-submit');
             submitBtn.disabled = true;
             submitBtn.textContent = '處理中...';
 
-            let imageUrl = document.getElementById('p-image').value || 'https://images.unsplash.com/photo-1632661674596-df8be070a5c5?w=500';
+            let imageUrl = document.getElementById('p-image').value || '';
             const fileInput = document.getElementById('p-file');
             if (fileInput.files && fileInput.files[0]) {
                 const file = fileInput.files[0];
@@ -497,10 +500,13 @@
                 });
             }
 
+            // 以「描述」欄位作為吐槽內容
             await saveData({
+                content: document.getElementById('p-desc').value,
+                category: document.getElementById('p-category').value,
+                // 保留其他欄位但不影響核心功能
                 title: document.getElementById('p-title').value,
                 price: document.getElementById('p-price').value,
-                category: document.getElementById('p-category').value,
                 description: document.getElementById('p-desc').value,
                 imageUrl: imageUrl
             });
@@ -509,7 +515,6 @@
             submitBtn.textContent = '確認發佈';
             e.target.reset();
             closeModals();
-            // saveData 已包含 renderList，此處不需再次呼叫
         };
 
         document.getElementById('authForm').onsubmit = (e) => {
@@ -528,7 +533,6 @@
             renderUI();
         });
 
-        // 啟動：立刻渲染 UI
         window.onload = async () => {
             await renderList();
             lucide.createIcons();
