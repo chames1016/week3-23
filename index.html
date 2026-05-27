@@ -47,12 +47,14 @@
                 </div>
                 <h1 class="text-2xl font-bold tracking-tight bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">易換</h1>
             </div>
+
             <div class="flex-1 max-w-xl relative hidden md:block">
                 <i data-lucide="search" class="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400 w-5 h-5"></i>
                 <input type="text" id="searchInput" placeholder="搜索您感興趣的物品..." 
                     class="w-full pl-12 pr-4 py-2.5 bg-neutral-100 border-none rounded-2xl focus:ring-2 focus:ring-indigo-500 transition-all outline-none">
             </div>
-            <!-- 這裡動態產生 authSection，包含 AI 摘要按鈕 -->
+
+            <!-- authSection 會動態產生，裡面已包含 AI 摘要按鈕 -->
             <div class="flex items-center gap-3" id="authSection"></div>
         </div>
     </header>
@@ -71,7 +73,7 @@
             </div>
         </div>
 
-        <!-- 新增：分類總結留言按鈕 -->
+        <!-- ✅ 僅新增此按鈕：分類總結留言 -->
         <div class="mb-4">
             <button onclick="handleCategorySummary()" 
                     class="flex items-center gap-2 bg-indigo-50 text-indigo-700 px-5 py-2.5 rounded-2xl font-bold hover:bg-indigo-100 transition-colors border border-indigo-200">
@@ -286,10 +288,9 @@
             lucide.createIcons();
         }
 
-        // 更新 header 右側按鈕，包含「AI 摘要」和個人資訊/登入
+        // Header 右側按鈕區：包含「AI 摘要」+ 登入/發佈/個人
         function updateAuthUI() {
             const section = document.getElementById('authSection');
-            // 固定的 AI 摘要按鈕 (header 版本)
             const aiBtn = `<button onclick="handleAISummary()" id="aiBtn" class="flex items-center gap-2 bg-zinc-800 text-zinc-100 px-4 py-2 rounded-full font-medium hover:bg-zinc-700 transition-colors active:scale-95 border border-zinc-700 disabled:opacity-50">
                 <i data-lucide="sparkles" class="w-4 h-4"></i>
                 <span id="aiBtnText">AI 摘要</span>
@@ -413,7 +414,6 @@
 
         // ========== AI 相關 ==========
         async function askAI(userPrompt) {
-            // 直接使用正常 fetch，需要後端支援 CORS 及 askAI action
             const res = await fetch(APPS_SCRIPT_URL, {
                 method: "POST",
                 headers: { "Content-Type": "text/plain" },
@@ -427,7 +427,7 @@
             return data.result || "AI 暫時冇回應";
         }
 
-        // Header 的「AI 摘要」功能（分析整個平台）
+        // Header 的「AI 摘要」功能（分析平台物品趨勢）
         async function handleAISummary() {
             const btn = document.getElementById('aiBtn');
             const text = document.getElementById('aiBtnText');
@@ -450,7 +450,7 @@
             }
         }
 
-        // Main 的「分類總結留言」功能
+        // ✅ 新增：分類總結留言
         async function handleCategorySummary() {
             const btn = document.querySelector('button[onclick="handleCategorySummary()"]');
             btn.disabled = true;
