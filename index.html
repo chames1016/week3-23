@@ -167,7 +167,7 @@
             setTimeout(() => { if (toast.parentNode) toast.remove(); }, 3000);
         }
         
-        // 同步到 Sheet（POST，no-cors）
+        // 同步到 Sheet（POST，no-cors，避免 CORS 阻擋寫入）
         async function syncToSheet(payload) {
             if (APPS_SCRIPT_URL === "PASTE_YOUR_APPS_SCRIPT_URL_HERE") return;
             try {
@@ -403,7 +403,7 @@
 
         function logout() { currentUser = null; localStorage.removeItem('session'); closeModals(); renderUI(); }
 
-        // ========== AI 摘要功能（原本的）==========
+        // ========== AI 摘要（恢復成最原始、最穩定的寫法）==========
         async function askAI(userPrompt) {
             const res = await fetch(APPS_SCRIPT_URL, {
                 method: "POST",
@@ -411,10 +411,8 @@
                 body: JSON.stringify({ action: "askAI", prompt: userPrompt })
             });
             const data = await res.json();
-            if (data.status === 'error' || data.error) {
-                throw new Error(data.message || data.error || 'AI 請求失敗');
-            }
-            return data.result || "AI 暫時冇回應";
+            if (data.error) throw new Error(data.error);
+            return data.result;
         }
 
         async function handleAISummary() {
