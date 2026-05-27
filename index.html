@@ -74,6 +74,15 @@
             </div>
         </div>
 
+        <!-- 新增：分類總結按鈕 -->
+        <div class="mb-4">
+            <button onclick="handleCategorySummary()" 
+                    class="flex items-center gap-2 bg-indigo-50 text-indigo-700 px-5 py-2.5 rounded-2xl font-bold hover:bg-indigo-100 transition-colors border border-indigo-200">
+                <i data-lucide="pie-chart" class="w-4 h-4"></i>
+                分類總結留言
+            </button>
+        </div>
+
         <div class="flex items-center gap-3 overflow-x-auto pb-6 no-scrollbar" id="categoryBar"></div>
         <div class="flex items-center gap-3 mb-8" id="filterBar"></div>
         <div id="itemGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"></div>
@@ -156,42 +165,32 @@
         // ============================================
         // Google Sheet 同步配置
         // ============================================
-        // ⚠️ 請將下方的 URL 替換為你部署的 Google Apps Script Web App 網址
         const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxjKJRZnQYvxNr4iiPavdQfGfWGx3IDBx2xd63WcRA-12ULCHLw_FL9gpy_tW1itRCf/exec";
         
-        // 顯示提示訊息
         function showToast(message, isError = false) {
             const existingToast = document.querySelector('.sync-toast');
             if (existingToast) existingToast.remove();
-            
             const toast = document.createElement('div');
             toast.className = `sync-toast ${isError ? 'error' : ''}`;
             toast.textContent = message;
             document.body.appendChild(toast);
-            
-            setTimeout(() => {
-                if (toast.parentNode) toast.remove();
-            }, 3000);
+            setTimeout(() => { if (toast.parentNode) toast.remove(); }, 3000);
         }
         
         // ---------- 同步到 Google Sheet（POST）----------
-        // 已改用 no-cors 模式，繞過 CORS 限制，但無法讀取回應
         async function syncToSheet(payload) {
             if (APPS_SCRIPT_URL === "PASTE_YOUR_APPS_SCRIPT_URL_HERE") {
-                console.warn("⚠️ 請先在程式碼中設定 APPS_SCRIPT_URL");
+                console.warn("⚠️ 請先設定 APPS_SCRIPT_URL");
                 return;
             }
             try {
                 await fetch(APPS_SCRIPT_URL, {
                     method: "POST",
-                    mode: "no-cors",            // 重點：避開 CORS
-                    headers: {
-                        "Content-Type": "text/plain",
-                    },
+                    mode: "no-cors",
+                    headers: { "Content-Type": "text/plain" },
                     body: JSON.stringify(payload)
                 });
                 console.log("📤 同步請求已發送（no-cors）:", payload);
-                // 因為 no-cors 無法知道後端是否成功，假設成功
             } catch (error) {
                 console.warn("⚠️ 同步失敗:", error);
                 showToast("雲端同步失敗，資料已儲存於本地", true);
@@ -200,13 +199,9 @@
         
         // ---------- 從 Google Sheet 載入所有資料（GET）----------
         async function loadFromSheet() {
-            if (APPS_SCRIPT_URL === "PASTE_YOUR_APPS_SCRIPT_URL_HERE") {
-                console.warn("⚠️ 請先設定 APPS_SCRIPT_URL，使用 localStorage 資料");
-                return null;
-            }
+            if (APPS_SCRIPT_URL === "PASTE_YOUR_APPS_SCRIPT_URL_HERE") return null;
             try {
                 const response = await fetch(APPS_SCRIPT_URL);
-                // 如果後端未加 CORS header，GET 仍可能失敗，此時會進入 catch
                 const result = await response.json();
                 if (result.success && result.records) {
                     console.log("☁️ 從雲端載入資料:", result.records.length, "筆");
@@ -224,9 +219,6 @@
         const CATS = ["全部", "數碼產品", "書籍文具", "家居生活", "鞋服配飾", "其他"];
         const FILTERS = ["全部", "只看 active", "只看 done"];
 
-        // --- Core 3 Functions (Rule 6) ---
-        
-        // 新增資料（支援雲端同步）
         async function saveData(newRecord) {
             const finalRecord = {
                 id: Date.now() + "_" + Math.random().toString(36).slice(2, 6),
@@ -236,56 +228,30 @@
                 comments: [],
                 ...newRecord
             };
-            
-            // 1. 先更新 localStorage
             const records = loadDataFromLocal();
             records.unshift(finalRecord);
             localStorage.setItem("records", JSON.stringify(records));
-            
-            // 2. 同步到 Google Sheet（非同步，不等待）
-            syncToSheet({
-                action: "create",
-                record: finalRecord
-            }).then(() => {
-                console.log("✅ 已觸發雲端同步 (create)");
-                showToast("已發佈並同步至雲端");
-            });
-            
+            syncToSheet({ action: "create", record: finalRecord });
             return finalRecord;
         }
         
-        // 修改資料
         async function updateRecordInStorage(id, updates) {
             const records = loadDataFromLocal();
             const index = records.findIndex(r => r.id === id);
             if (index === -1) return false;
-            
             records[index] = { ...records[index], ...updates };
             localStorage.setItem("records", JSON.stringify(records));
-            
-            syncToSheet({
-                action: "update",
-                id: id,
-                changes: updates
-            }).then(() => {
-                console.log("✅ 已觸發雲端同步 (update)");
-            });
-            
+            syncToSheet({ action: "update", id: id, changes: updates });
             return true;
         }
         
-        // 讀取資料：優先從雲端，失敗則從 localStorage
         async function loadData() {
             const cloudRecords = await loadFromSheet();
             if (cloudRecords && cloudRecords.length > 0) {
                 localStorage.setItem("records", JSON.stringify(cloudRecords));
-                console.log("☁️ 使用雲端資料");
                 return cloudRecords;
             }
-            
-            const localRecords = loadDataFromLocal();
-            console.log("💾 使用本地備份資料");
-            return localRecords;
+            return loadDataFromLocal();
         }
         
         function loadDataFromLocal() {
@@ -326,7 +292,6 @@
             lucide.createIcons();
         }
 
-        // --- Auth & Profile ---
         function updateAuthUI() {
             const section = document.getElementById('authSection');
             if (currentUser) {
@@ -365,7 +330,6 @@
             toggleModal('profileModal', true);
         }
 
-        // --- Interaction Helpers ---
         function toggleModal(id, show) { document.getElementById(id).classList.toggle('hidden', !show); }
         function closeModals() { ['publishModal', 'authModal', 'profileModal', 'detailModal'].forEach(id => toggleModal(id, false)); }
 
@@ -396,7 +360,6 @@
             const item = data.find(r => r.id === id);
             const modal = document.getElementById('detailModal');
             const isOwner = currentUser && item.owner === currentUser.name;
-            
             modal.innerHTML = `
                 <div class="bg-white w-full max-w-2xl max-h-[90vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col relative">
                     <div class="p-6 border-b flex items-center justify-between">
@@ -407,8 +370,6 @@
                         ${isOwner ? `<div class="bg-neutral-50 p-6 rounded-2xl border"><button onclick="toggleStatus('${item.id}')" class="w-full py-3 rounded-xl font-bold ${item.status==='active'?'bg-neutral-200 text-neutral-700':'bg-indigo-600 text-white'}">${item.status==='active'?'標記為已售出':'重新上架'}</button></div>`:''}
                         <img src="${item.imageUrl}" class="w-full h-80 object-cover rounded-3xl shadow-sm">
                         <div><h4 class="text-xs font-bold text-neutral-400 uppercase mb-3">物品詳情</h4><p class="text-neutral-700 leading-relaxed">${item.description}</p></div>
-                        
-                        <!-- 留言板 -->
                         <div class="pt-8 border-t">
                             <h4 class="text-xs font-bold text-neutral-400 uppercase mb-4 flex items-center gap-2"><i data-lucide="message-square" class="w-4 h-4"></i> 留言板 (${item.comments.length})</h4>
                             <div class="space-y-4 mb-6" id="commentList">
@@ -450,6 +411,59 @@
 
         function logout() { currentUser = null; localStorage.removeItem('session'); closeModals(); renderUI(); }
 
+        // ========== 新增：AI 相關函式 ==========
+        async function askAI(userPrompt) {
+            const res = await fetch(APPS_SCRIPT_URL, {
+                method: "POST",
+                headers: { "Content-Type": "text/plain" },
+                body: JSON.stringify({ action: "askAI", prompt: userPrompt })
+            });
+            const data = await res.json();
+            return data.result || data.error || "AI 暫時冇回應";
+        }
+
+        async function handleCategorySummary() {
+            const btn = document.querySelector('button[onclick="handleCategorySummary()"]');
+            btn.disabled = true;
+            btn.innerHTML = '<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> 分析中...';
+            lucide.createIcons();
+
+            try {
+                const records = await loadData();
+                // 收集所有留言，按分類分組
+                const categoryComments = {};
+                for (const r of records) {
+                    if (!r.comments || r.comments.length === 0) continue;
+                    if (!categoryComments[r.category]) categoryComments[r.category] = [];
+                    categoryComments[r.category].push(...r.comments);
+                }
+
+                const categories = Object.keys(categoryComments);
+                if (categories.length === 0) {
+                    alert('目前沒有任何留言可以總結');
+                    return;
+                }
+
+                // 組裝 prompt：每個分類列出所有留言內容
+                let prompt = '請根據以下各分類的留言內容，用繁體中文簡短總結每個分類中用戶的主要意見、常見問題或趨勢。每個分類只需 1-2 句，並標明分類名稱。\n\n';
+                for (const cat of categories) {
+                    prompt += `【${cat}】\n`;
+                    prompt += categoryComments[cat].map(c => `- ${c.content}`).join('\n');
+                    prompt += '\n\n';
+                }
+                prompt += '請開始總結：';
+
+                const result = await askAI(prompt);
+                alert(result);
+            } catch (e) {
+                alert('AI 分析失敗：' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i data-lucide="pie-chart" class="w-4 h-4"></i> 分類總結留言';
+                lucide.createIcons();
+            }
+        }
+
         // --- Initial Events ---
         document.getElementById('publishForm').onsubmit = async (e) => {
             e.preventDefault();
@@ -459,7 +473,6 @@
 
             let imageUrl = document.getElementById('p-image').value || 'https://images.unsplash.com/photo-1632661674596-df8be070a5c5?w=500';
             const fileInput = document.getElementById('p-file');
-            
             if (fileInput.files && fileInput.files[0]) {
                 const file = fileInput.files[0];
                 imageUrl = await new Promise((resolve) => {
@@ -500,7 +513,6 @@
             renderUI();
         });
 
-        // 初始化
         renderUI();
     </script>
 </body>
