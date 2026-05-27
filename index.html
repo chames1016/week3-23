@@ -54,9 +54,7 @@
                     class="w-full pl-12 pr-4 py-2.5 bg-neutral-100 border-none rounded-2xl focus:ring-2 focus:ring-indigo-500 transition-all outline-none">
             </div>
 
-            <div class="flex items-center gap-3" id="authSection">
-                <!-- Dynamically filled -->
-            </div>
+            <div class="flex items-center gap-3" id="authSection"></div>
         </div>
     </header>
 
@@ -74,7 +72,7 @@
             </div>
         </div>
 
-        <!-- 新增：分類總結按鈕 -->
+        <!-- 分類總結按鈕（新增） -->
         <div class="mb-4">
             <button onclick="handleCategorySummary()" 
                     class="flex items-center gap-2 bg-indigo-50 text-indigo-700 px-5 py-2.5 rounded-2xl font-bold hover:bg-indigo-100 transition-colors border border-indigo-200">
@@ -179,10 +177,7 @@
         
         // ---------- 同步到 Google Sheet（POST）----------
         async function syncToSheet(payload) {
-            if (APPS_SCRIPT_URL === "PASTE_YOUR_APPS_SCRIPT_URL_HERE") {
-                console.warn("⚠️ 請先設定 APPS_SCRIPT_URL");
-                return;
-            }
+            if (APPS_SCRIPT_URL === "PASTE_YOUR_APPS_SCRIPT_URL_HERE") return;
             try {
                 await fetch(APPS_SCRIPT_URL, {
                     method: "POST",
@@ -411,7 +406,7 @@
 
         function logout() { currentUser = null; localStorage.removeItem('session'); closeModals(); renderUI(); }
 
-        // ========== 新增：AI 相關函式 ==========
+        // ========== AI 相關函式（修正錯誤處理）==========
         async function askAI(userPrompt) {
             const res = await fetch(APPS_SCRIPT_URL, {
                 method: "POST",
@@ -419,7 +414,10 @@
                 body: JSON.stringify({ action: "askAI", prompt: userPrompt })
             });
             const data = await res.json();
-            return data.result || data.error || "AI 暫時冇回應";
+            // 如果後端回傳業務錯誤，直接拋出例外，方便上層顯示
+            if (data.error) throw new Error(data.error);
+            if (data.status === 'error') throw new Error(data.message || 'AI 請求失敗');
+            return data.result || "AI 暫時冇回應";
         }
 
         async function handleCategorySummary() {
@@ -444,7 +442,6 @@
                     return;
                 }
 
-                // 組裝 prompt：每個分類列出所有留言內容
                 let prompt = '請根據以下各分類的留言內容，用繁體中文簡短總結每個分類中用戶的主要意見、常見問題或趨勢。每個分類只需 1-2 句，並標明分類名稱。\n\n';
                 for (const cat of categories) {
                     prompt += `【${cat}】\n`;
