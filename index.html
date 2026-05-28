@@ -446,7 +446,7 @@
 
         function logout() { currentUser = null; localStorage.removeItem('session'); closeModals(); renderUI(); }
 
-        // --- AI 摘要功能 ---
+        // --- AI 摘要功能（已改為二手交易平台版本）---
         async function askAI(userPrompt) {
             const res = await fetch(APPS_SCRIPT_URL, {
                 method: "POST",
@@ -464,11 +464,13 @@
             text.textContent = '思考中...';
             try {
                 const records = await loadData();
-                if (records.length === 0) { alert('未有吐槽資料可以摘要'); return; }
+                if (records.length === 0) { alert('未有物品可以摘要'); return; }
+                // 收集前 30 筆物品的基本資訊（標題、分類、價格、描述）
                 const summaryInput = records.slice(0, 30).map(r =>
-                    `[${r.category}] ${r.content || r.description || ''}`
+                    `[${r.category}] ${r.title || '無標題'} - ${r.description || ''} (MOP ${r.price || '?'})`
                 ).join('\n');
-                const prompt = '以下是班級吐槽牆嘅留言。請用繁體中文，用 3-5 句概括同學最關心嘅問題、情緒同有冇明顯 patterns:\n\n' + summaryInput;
+                // 二手平台導向的提示詞
+                const prompt = '以下係二手交易平台上嘅物品清單，請用繁體中文，用 3-5 句歸納目前平台嘅熱門分類、價格範圍同埋有冇特別嘅交易趨勢:\n\n' + summaryInput;
                 const result = await askAI(prompt);
                 alert(result);
             } catch (e) {
@@ -509,7 +511,6 @@
             submitBtn.textContent = '確認發佈';
             e.target.reset();
             closeModals();
-            // saveData 已包含 renderList，此處不需再次呼叫
         };
 
         document.getElementById('authForm').onsubmit = (e) => {
