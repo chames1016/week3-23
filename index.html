@@ -47,20 +47,16 @@
                 </div>
                 <h1 class="text-2xl font-bold tracking-tight bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">易換</h1>
             </div>
-
             <div class="flex-1 max-w-xl relative hidden md:block">
                 <i data-lucide="search" class="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400 w-5 h-5"></i>
                 <input type="text" id="searchInput" placeholder="搜索您感興趣的物品..." 
                     class="w-full pl-12 pr-4 py-2.5 bg-neutral-100 border-none rounded-2xl focus:ring-2 focus:ring-indigo-500 transition-all outline-none">
             </div>
-
-            <!-- Header 右側：包含 AI 摘要按鈕 -->
             <div class="flex items-center gap-3" id="authSection"></div>
         </div>
     </header>
 
     <main class="max-w-7xl mx-auto px-4 py-8">
-        <!-- Stats -->
         <div class="mb-6 flex items-center gap-4 bg-white p-4 rounded-2xl border border-neutral-200 w-fit">
             <div class="flex items-center gap-2">
                 <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
@@ -72,7 +68,6 @@
                 <span class="text-sm font-bold text-neutral-600">Done: <span id="doneCount">0</span></span>
             </div>
         </div>
-
         <div class="flex items-center gap-3 overflow-x-auto pb-6 no-scrollbar" id="categoryBar"></div>
         <div class="flex items-center gap-3 mb-8" id="filterBar"></div>
         <div id="itemGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"></div>
@@ -152,61 +147,90 @@
     </div>
 
     <script>
-        // ============================================
-        // Google Sheet 同步配置
-        // ============================================
-        const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxjKJRZnQYvxNr4iiPavdQfGfWGx3IDBx2xd63WcRA-12ULCHLw_FL9gpy_tW1itRCf/exec";
-        
+        // ========== 安全輔助：避免 lucide 未載入報錯 ==========
+        function safeCreateIcons() {
+            if (window.lucide && typeof lucide.createIcons === 'function') {
+                lucide.createIcons();
+            }
+        }
+
+        // ========== Google Sheet 同步設定 ==========
+        const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbymTNz2sRZHVJwB5hBiXGhByQGIY8wtWBeWetJijS-PpzY8HeSf5SWP7OIRcN_oGVkpgA/exec";
+
+        // 顯示提示
         function showToast(message, isError = false) {
-            const existingToast = document.querySelector('.sync-toast');
-            if (existingToast) existingToast.remove();
+            const old = document.querySelector('.sync-toast');
+            if (old) old.remove();
             const toast = document.createElement('div');
             toast.className = `sync-toast ${isError ? 'error' : ''}`;
             toast.textContent = message;
             document.body.appendChild(toast);
             setTimeout(() => { if (toast.parentNode) toast.remove(); }, 3000);
         }
-        
-        // 同步到 Sheet（POST，no-cors，避免 CORS 阻擋寫入）
+
+        // 同步到 Sheet (POST)
         async function syncToSheet(payload) {
-            if (APPS_SCRIPT_URL === "PASTE_YOUR_APPS_SCRIPT_URL_HERE") return;
+            if (APPS_SCRIPT_URL.includes("PASTE")) {
+                console.warn("請設定 APPS_SCRIPT_URL");
+                return;
+            }
             try {
                 await fetch(APPS_SCRIPT_URL, {
                     method: "POST",
-                    mode: "no-cors",
                     headers: { "Content-Type": "text/plain" },
                     body: JSON.stringify(payload)
                 });
-                console.log("📤 同步請求已發送（no-cors）:", payload);
-            } catch (error) {
-                console.warn("⚠️ 同步失敗:", error);
-                showToast("雲端同步失敗，資料已儲存於本地", true);
+                console.log("📤 已同步", payload);
+            } catch (e) {
+                console.warn("同步失敗", e);
+                showToast("雲端同步失敗，已存於本地", true);
             }
         }
-        
-        // 從 Sheet 讀取（GET）
-        async function loadFromSheet() {
-            if (APPS_SCRIPT_URL === "PASTE_YOUR_APPS_SCRIPT_URL_HERE") return null;
+
+        // --- 資料正規化 ---
+        function normalizeRecord(record) {
+            return {
+                id: record.id || record.ID || "",
+                createdAt: record.createdAt || record.CreatedAt || "",
+                content: record.content || record.Content || "",
+                category: record.category || record.Category || "其他",
+                likes: Number(record.likes !== undefined ? record.likes : (record.Likes || 0)),
+                status: record.status || record.Status || "active"
+            };
+        }
+
+        // 從 Sheet 讀取 (GET)
+        async function fetchRecordsFromSheet() {
+            if (APPS_SCRIPT_URL.includes("PASTE")) return null;
             try {
-                const response = await fetch(APPS_SCRIPT_URL);
-                const result = await response.json();
-                if (result.success && result.records) {
-                    console.log("☁️ 雲端資料筆數:", result.records.length);
-                    return result.records;
-                }
-                return null;
-            } catch (error) {
-                console.warn("⚠️ 從雲端載入失敗:", error);
+                const res = await fetch(APPS_SCRIPT_URL);
+                const data = await res.json();
+                return Array.isArray(data.records) ? data.records.map(normalizeRecord) : null;
+            } catch (e) {
+                console.warn("從 Sheet 讀取失敗", e);
                 return null;
             }
         }
 
-        // --- State ---
+        // --- 狀態 ---
         let currentCategory = '全部', currentFilter = '全部', searchQuery = '', currentUser = null;
         const CATS = ["全部", "數碼產品", "書籍文具", "家居生活", "鞋服配飾", "其他"];
         const FILTERS = ["全部", "只看 active", "只看 done"];
 
+        // --- 核心資料層 (遠端優先，localStorage 為備份) ---
+        async function loadData() {
+            const remote = await fetchRecordsFromSheet();
+            if (remote) {
+                localStorage.setItem("records", JSON.stringify(remote));
+                return remote;
+            }
+            const data = localStorage.getItem("records");
+            return data ? JSON.parse(data) : [];
+        }
+
+        // 新增資料 (push 後立刻用最新 records 渲染，避免覆蓋)
         async function saveData(newRecord) {
+            const records = await loadData();
             const finalRecord = {
                 id: Date.now() + "_" + Math.random().toString(36).slice(2, 6),
                 createdAt: new Date().toISOString(),
@@ -215,46 +239,40 @@
                 comments: [],
                 ...newRecord
             };
-            const records = loadDataFromLocal();
             records.unshift(finalRecord);
             localStorage.setItem("records", JSON.stringify(records));
-            syncToSheet({ action: "create", record: finalRecord });
+            syncToSheet({ action: "create", record: finalRecord }).then(() => {
+                showToast("已發佈並同步至雲端");
+            });
+            await renderList(records);  // 傳入最新 records 立即渲染
             return finalRecord;
         }
-        
+
+        // 修改資料（包括 likes / comments 等）
         async function updateRecordInStorage(id, updates) {
-            const records = loadDataFromLocal();
+            const records = await loadData();
             const index = records.findIndex(r => r.id === id);
             if (index === -1) return false;
             records[index] = { ...records[index], ...updates };
             localStorage.setItem("records", JSON.stringify(records));
             syncToSheet({ action: "update", id: id, changes: updates });
-            return true;
+            return records;  // 回傳最新 records，供後續使用
         }
-        
-        async function loadData() {
-            const cloudRecords = await loadFromSheet();
-            if (cloudRecords && cloudRecords.length > 0) {
-                localStorage.setItem("records", JSON.stringify(cloudRecords));
-                return cloudRecords;
-            }
-            return loadDataFromLocal();
-        }
-        
-        function loadDataFromLocal() {
-            const data = localStorage.getItem("records");
-            return data ? JSON.parse(data) : [];
-        }
-        
-        async function renderList() {
-            const allItems = await loadData();
-            document.getElementById('activeCount').textContent = allItems.filter(i => i.status === 'active').length;
-            document.getElementById('doneCount').textContent = allItems.filter(i => i.status === 'done').length;
 
-            const filtered = allItems.filter(i => {
+        // --- 渲染 ---
+        async function renderList(recordsOverride) {
+            const records = recordsOverride || await loadData();
+            document.getElementById('activeCount').textContent = records.filter(i => i.status === 'active').length;
+            document.getElementById('doneCount').textContent = records.filter(i => i.status === 'done').length;
+
+            const filtered = records.filter(i => {
                 const mc = currentCategory === '全部' || i.category === currentCategory;
-                const ms = i.title.toLowerCase().includes(searchQuery.toLowerCase()) || i.description.toLowerCase().includes(searchQuery.toLowerCase());
-                const mf = currentFilter === '全部' || (currentFilter === '只看 active' && i.status === 'active') || (currentFilter === '只看 done' && i.status === 'done');
+                const ms = i.title && i.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                           i.content && i.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                           i.description && i.description.toLowerCase().includes(searchQuery.toLowerCase());
+                const mf = currentFilter === '全部' || 
+                           (currentFilter === '只看 active' && i.status === 'active') || 
+                           (currentFilter === '只看 done' && i.status === 'done');
                 return mc && ms && mf;
             });
 
@@ -267,21 +285,28 @@
                     </div>
                     <div class="p-5">
                         <div class="flex justify-between mb-2 items-start">
-                            <h3 class="font-bold text-neutral-800 line-clamp-1 flex-1 ${i.status==='done'?'line-through text-neutral-400':''}">${i.title}</h3>
-                            <span class="text-indigo-600 font-bold ml-2">MOP ${i.price}</span>
+                            <h3 class="font-bold text-neutral-800 line-clamp-1 flex-1 ${i.status==='done'?'line-through text-neutral-400':''}">${i.title || i.content?.slice(0,30) || '無標題'}</h3>
+                            <span class="text-indigo-600 font-bold ml-2">${i.price ? 'MOP '+i.price : ''}</span>
                         </div>
-                        <p class="text-neutral-500 text-xs line-clamp-2">${i.description}</p>
+                        <p class="text-neutral-500 text-xs line-clamp-2">${i.content || i.description || ''}</p>
+                        <div class="flex items-center justify-between mt-3">
+                            <button onclick="event.stopPropagation(); handleLike('${i.id}')" class="flex items-center gap-1 text-rose-500 hover:bg-rose-50 px-2 py-1 rounded-full transition-colors">
+                                <i data-lucide="heart" class="w-4 h-4"></i>
+                                <span class="text-xs font-medium">${i.likes || 0}</span>
+                            </button>
+                            <span class="text-[10px] text-neutral-400">${i.owner || ''}</span>
+                        </div>
                     </div>
                 </div>
             `).join('');
 
             updateAuthUI();
-            lucide.createIcons();
+            safeCreateIcons();
         }
 
-        // Header 右側按鈕：AI 摘要 + 發佈/個人
         function updateAuthUI() {
             const section = document.getElementById('authSection');
+            // AI 按鈕統一放在前面
             const aiBtn = `<button onclick="handleAISummary()" id="aiBtn" class="flex items-center gap-2 bg-zinc-800 text-zinc-100 px-4 py-2 rounded-full font-medium hover:bg-zinc-700 transition-colors active:scale-95 border border-zinc-700 disabled:opacity-50">
                 <i data-lucide="sparkles" class="w-4 h-4"></i>
                 <span id="aiBtnText">AI 摘要</span>
@@ -294,7 +319,7 @@
             } else {
                 section.innerHTML = aiBtn + `<button onclick="toggleModal('authModal', true)" class="bg-indigo-600 text-white px-6 py-2.5 rounded-full font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all">登錄 / 註冊</button>`;
             }
-            lucide.createIcons();
+            safeCreateIcons();
         }
 
         async function openProfile() {
@@ -308,17 +333,17 @@
                     <div class="space-y-3">
                         ${myItems.map(i => `
                             <div class="flex items-center justify-between p-3 bg-neutral-50 rounded-xl border border-neutral-100">
-                                <div class="flex-1 min-w-0 mr-4"><p class="font-bold text-sm truncate">${i.title}</p><p class="text-[10px] text-indigo-600">MOP ${i.price}</p></div>
+                                <div class="flex-1 min-w-0 mr-4"><p class="font-bold text-sm truncate">${i.title || i.content?.slice(0,20)}</p><p class="text-[10px] text-indigo-600">${i.price ? 'MOP '+i.price : ''}</p></div>
                                 <div class="flex items-center gap-2">
                                     <span class="text-[9px] font-bold px-2 py-0.5 rounded-full ${i.status==='active'?'bg-green-100 text-green-700':'bg-neutral-200'}">${i.status === 'active' ? '上架中' : '已完成'}</span>
-                                    <button onclick="toggleStatus('${i.id}', event)" class="p-1.5 hover:bg-indigo-100 rounded-lg text-indigo-600 transition-all" title="切換狀態"><i data-lucide="check-circle" class="w-4 h-4"></i></button>
+                                    <button onclick="toggleStatus('${i.id}', event)" class="p-1.5 hover:bg-indigo-100 rounded-lg text-indigo-600 transition-all"><i data-lucide="check-circle" class="w-4 h-4"></i></button>
                                 </div>
                             </div>
                         `).join('')}
                     </div>
                 </section>
             `;
-            lucide.createIcons();
+            safeCreateIcons();
             toggleModal('profileModal', true);
         }
 
@@ -340,32 +365,47 @@
             const i = records.findIndex(r => r.id === id);
             if(i > -1) {
                 const newStatus = records[i].status === 'active' ? 'done' : 'active';
-                await updateRecordInStorage(id, { status: newStatus });
-                await renderUI();
+                const updatedRecords = await updateRecordInStorage(id, { status: newStatus });
+                await renderList(updatedRecords);
                 if(!document.getElementById('profileModal').classList.contains('hidden')) await openProfile();
                 else closeModals();
             }
         }
 
-        async function showDetail(id) {
-            const data = await loadData();
+        async function handleLike(id) {
+            const records = await loadData();
+            const index = records.findIndex(r => r.id === id);
+            if (index !== -1) {
+                records[index].likes = (records[index].likes || 0) + 1;
+                localStorage.setItem("records", JSON.stringify(records));
+                syncToSheet({ action: "update", id: id, changes: { likes: records[index].likes } });
+                await renderList(records);  // 用最新 records 渲染，避免重新 GET
+            }
+        }
+
+        async function showDetail(id, recordsParam) {
+            const data = recordsParam || await loadData();
             const item = data.find(r => r.id === id);
+            if (!item) return;
             const modal = document.getElementById('detailModal');
             const isOwner = currentUser && item.owner === currentUser.name;
+            
             modal.innerHTML = `
                 <div class="bg-white w-full max-w-2xl max-h-[90vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col relative">
                     <div class="p-6 border-b flex items-center justify-between">
-                        <div><h3 class="text-xl font-bold">${item.title}</h3><p class="text-indigo-600 font-bold">MOP ${item.price}</p></div>
+                        <div><h3 class="text-xl font-bold">${item.title || item.content?.slice(0,30)}</h3><p class="text-indigo-600 font-bold">${item.price ? 'MOP '+item.price : ''}</p></div>
                         <button onclick="closeModals()"><i data-lucide="x" class="w-6 h-6"></i></button>
                     </div>
                     <div class="flex-1 overflow-y-auto p-8 space-y-8">
                         ${isOwner ? `<div class="bg-neutral-50 p-6 rounded-2xl border"><button onclick="toggleStatus('${item.id}')" class="w-full py-3 rounded-xl font-bold ${item.status==='active'?'bg-neutral-200 text-neutral-700':'bg-indigo-600 text-white'}">${item.status==='active'?'標記為已售出':'重新上架'}</button></div>`:''}
-                        <img src="${item.imageUrl}" class="w-full h-80 object-cover rounded-3xl shadow-sm">
-                        <div><h4 class="text-xs font-bold text-neutral-400 uppercase mb-3">物品詳情</h4><p class="text-neutral-700 leading-relaxed">${item.description}</p></div>
+                        <img src="${item.imageUrl || 'https://images.unsplash.com/photo-1632661674596-df8be070a5c5?w=500'}" class="w-full h-80 object-cover rounded-3xl shadow-sm">
+                        <div><h4 class="text-xs font-bold text-neutral-400 uppercase mb-3">物品詳情</h4><p class="text-neutral-700 leading-relaxed">${item.content || item.description || ''}</p></div>
+                        
+                        <!-- 留言板 -->
                         <div class="pt-8 border-t">
-                            <h4 class="text-xs font-bold text-neutral-400 uppercase mb-4 flex items-center gap-2"><i data-lucide="message-square" class="w-4 h-4"></i> 留言板 (${item.comments.length})</h4>
+                            <h4 class="text-xs font-bold text-neutral-400 uppercase mb-4 flex items-center gap-2"><i data-lucide="message-square" class="w-4 h-4"></i> 留言板 (${item.comments ? item.comments.length : 0})</h4>
                             <div class="space-y-4 mb-6" id="commentList">
-                                ${item.comments.length === 0 ? '<p class="text-neutral-400 text-sm italic py-4 text-center">暫無留言，快來搶沙發！</p>' : item.comments.map(c => `
+                                ${(!item.comments || item.comments.length === 0) ? '<p class="text-neutral-400 text-sm italic py-4 text-center">暫無留言，快來搶沙發！</p>' : item.comments.map(c => `
                                     <div class="bg-neutral-50 p-4 rounded-2xl">
                                         <div class="flex justify-between items-center mb-1"><span class="font-bold text-xs text-indigo-600">${c.author}</span><span class="text-[10px] text-neutral-400">${new Date(c.createdAt).toLocaleString()}</span></div>
                                         <p class="text-sm text-neutral-700">${c.content}</p>
@@ -381,7 +421,7 @@
                 </div>
             `;
             toggleModal('detailModal', true);
-            lucide.createIcons();
+            safeCreateIcons();
         }
 
         async function addComment(e, itemId) {
@@ -395,15 +435,18 @@
                     content: input.value,
                     createdAt: new Date().toISOString()
                 };
-                const updatedComments = [...records[i].comments, newComment];
-                await updateRecordInStorage(itemId, { comments: updatedComments });
-                await showDetail(itemId);
+                const updatedComments = [...(records[i].comments || []), newComment];
+                records[i].comments = updatedComments;
+                localStorage.setItem("records", JSON.stringify(records));
+                syncToSheet({ action: "update", id: itemId, changes: { comments: updatedComments } });
+                // 傳入最新 records 直接更新詳情，避免重新 GET
+                await showDetail(itemId, records);
             }
         }
 
         function logout() { currentUser = null; localStorage.removeItem('session'); closeModals(); renderUI(); }
 
-        // ========== AI 摘要（恢復成最原始、最穩定的寫法）==========
+        // --- AI 摘要功能 ---
         async function askAI(userPrompt) {
             const res = await fetch(APPS_SCRIPT_URL, {
                 method: "POST",
@@ -411,8 +454,7 @@
                 body: JSON.stringify({ action: "askAI", prompt: userPrompt })
             });
             const data = await res.json();
-            if (data.error) throw new Error(data.error);
-            return data.result;
+            return data.result || data.error || "AI 冇回應";
         }
 
         async function handleAISummary() {
@@ -422,22 +464,22 @@
             text.textContent = '思考中...';
             try {
                 const records = await loadData();
-                if (records.length === 0) { alert('未有物品可以摘要'); return; }
+                if (records.length === 0) { alert('未有吐槽資料可以摘要'); return; }
                 const summaryInput = records.slice(0, 30).map(r =>
-                    `[${r.category}] ${r.title} - ${r.description}`
+                    `[${r.category}] ${r.content || r.description || ''}`
                 ).join('\n');
-                const prompt = '以下係二手平台上面嘅物品清單。請用繁體中文，用 3-5 句歸納目前平台嘅熱門分類、價格範圍同埋有冇特別嘅交易趨勢:\n\n' + summaryInput;
+                const prompt = '以下是班級吐槽牆嘅留言。請用繁體中文，用 3-5 句概括同學最關心嘅問題、情緒同有冇明顯 patterns:\n\n' + summaryInput;
                 const result = await askAI(prompt);
                 alert(result);
             } catch (e) {
-                alert('AI 摘要失敗：' + e.message);
+                alert('AI 出錯：' + e.message);
             } finally {
                 btn.disabled = false;
                 text.textContent = 'AI 摘要';
             }
         }
 
-        // --- 事件綁定 ---
+        // --- 事件綁定與初始化 ---
         document.getElementById('publishForm').onsubmit = async (e) => {
             e.preventDefault();
             const submitBtn = document.getElementById('p-submit');
@@ -465,9 +507,9 @@
 
             submitBtn.disabled = false;
             submitBtn.textContent = '確認發佈';
-            e.target.reset(); 
+            e.target.reset();
             closeModals();
-            renderUI();
+            // saveData 已包含 renderList，此處不需再次呼叫
         };
 
         document.getElementById('authForm').onsubmit = (e) => {
@@ -486,7 +528,11 @@
             renderUI();
         });
 
-        renderUI();
+        // 啟動：立刻渲染 UI
+        window.onload = async () => {
+            await renderList();
+            lucide.createIcons();
+        };
     </script>
 </body>
 </html>
